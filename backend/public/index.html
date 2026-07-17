@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Real-Time Testing Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { display: flex; gap: 20px; }
+        .box { flex: 1; padding: 20px; background: white; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }
+        h2 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        button { background-color: #ff4757; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-size: 16px; width: 100%; }
+        button:hover { background-color: #ff6b81; }
+        .log-box { background: #2f3542; color: #2ed573; padding: 15px; border-radius: 5px; height: 250px; overflow-y: auto; font-family: monospace; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>🚨 VehicleHelp Real-Time Test Center</h1>
+    <p>Open this page in two separate windows to simulate User and Partner side!</p>
+
+    <div class="container">
+        <div class="box">
+            <h2>👤 User Panel (Send SOS)</h2>
+            <p>Simulate creating an emergency booking request.</p>
+            <button id="sendSosBtn">🔥 Send Emergency SOS Request</button>
+        </div>
+
+        <div class="box">
+            <h2>🔧 Partner Panel (Live Radar)</h2>
+            <p>Incoming live requests will show up below in real-time:</p>
+            <div id="partnerLogs" class="log-box">📡 Waiting for live alerts...</div>
+        </div>
+    </div>
+
+    <script>
+        // 1. Connect to Socket.io Server (Automatic connection to local host)
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected to Server Socket! ID:', socket.id);
+        });
+
+        // 2. 👇 LISTEN FOR ALERTS: Partners incoming requests handle karega
+        socket.on('NEW_BOOKING_REQUEST', (data) => {
+            const logBox = document.getElementById('partnerLogs');
+            
+            // Purane text ko clear karne ke liye placeholder htao
+            if(logBox.innerText.includes("Waiting for live alerts...")) {
+                logBox.innerHTML = "";
+            }
+
+            // Naya alert inject karo screen par
+            logBox.innerHTML += `<p style="color: #ff4757; border-bottom: 1px dashed #57606f; padding-bottom: 5px;">
+                <b>🚨 NEW SOS REQUEST DETECTED!</b><br>
+                Booking ID: ${data.bookingId}<br>
+                User Mobile: ${data.userMobile}<br>
+                Issue: ${data.vehicleIssue}<br>
+                Time: ${new Date().toLocaleTimeString()}
+            </p>`;
+            
+            // Auto scroll to bottom
+            logBox.scrollTop = logBox.scrollHeight;
+        });
+
+        // 3. SEND SOS: Fake button click standard API query hit karega
+        document.getElementById('sendSosBtn').addEventListener('click', async () => {
+            const dummyBooking = {
+                userMobile: "9876543210",
+                pickupLocation: "Malviya Nagar, Delhi",
+                vehicleIssue: "Engine Breakdown / Bike Puncture",
+                latitude: 28.5276,
+                longitude: 77.2174
+            };
+
+            try {
+                const response = await fetch('/api/bookings/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dummyBooking)
+                });
+                const result = await response.json();
+                console.log("API Response:", result);
+                alert("SOS API Triggered! Check the Partner Panel log.");
+            } catch (err) {
+                console.error("Error creating booking:", err);
+            }
+        });
+    </script>
+</body>
+</html>
