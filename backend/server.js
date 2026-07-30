@@ -25,20 +25,41 @@ mongoose.connect(MONGO_URI)
 // Browser favicon route handler
 app.get('/favicon.ico', (req, res) => res.status(204));
 
+// Home Route
+app.get('/', (req, res) => {
+  res.send('<h1>🚗 VehicleHelp Backend Server is Live and Running! 🚀</h1>');
+});
+
 // Core Server and Realtime Engine Initializer
 const server = http.createServer(app);
+
+// Socket.io with optimized connection timeouts and transport stability
 const io = new Server(server, { 
-    cors: { origin: "*" } 
+    cors: { origin: "*" },
+    pingTimeout: 30000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling']
 });
 
 // Pass socket reference globally to express middleware context
 app.set('socketio', io);
 
+// Realtime Connection Hub
 io.on('connection', (socket) => {
     console.log("✅ Socket Connected Framework Client ID: " + socket.id);
 
-    socket.on("disconnect", () => {
-        console.log("❌ Client dropped stream: " + socket.id);
+    // Dynamic Live Billing Event Stream Listener
+    socket.on("BILL_CHANGED", (data) => {
+        socket.broadcast.emit("BILL_UPDATED_INBOUND", data);
+    });
+
+    // Dynamic Workflow Status Listener (assigned, arrived, inprogress, completed)
+    socket.on("STATUS_CHANGE", (data) => {
+        socket.broadcast.emit("STATUS_UPDATED_INBOUND", data);
+    });
+
+    socket.on("disconnect", (reason) => {
+        console.log(`❌ Client dropped stream: ${socket.id} (Reason: ${reason})`);
     });
 });
 
@@ -62,6 +83,23 @@ app.post('/api/auth/send-otp', (req, res) => {
 
 app.post('/api/auth/verify-otp', (req, res) => {
     res.status(200).json({ success: true, token: 'session_mock_token_key' });
+});
+
+// Live Billing Spares Engine Integration Endpoint
+app.post('/api/bookings/add-item', async (req, res) => {
+    try {
+        const { bookingId, name, price } = req.body;
+        
+        const socketio = req.app.get('socketio');
+        socketio.emit("BILL_UPDATED_INBOUND", {
+            bookingId,
+            item: { id: Date.now().toString(), name, price: Number(price) }
+        });
+
+        res.status(200).json({ success: true, message: "Item updated securely onto bill system arrays." });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 const bookingRoutes = require('./routes/bookingRoutes');
