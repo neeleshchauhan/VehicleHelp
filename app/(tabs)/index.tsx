@@ -4,32 +4,74 @@ import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { io, Socket } from "socket.io-client";
 
-// 🌟 THE ULTIMATE SHIELD: Fully intercepted mock object to prevent internal library mutations
-import NativeVoiceModule from '@react-native-voice/voice';
-const Voice = (NativeVoiceModule && typeof NativeVoiceModule.start === 'function') 
-  ? NativeVoiceModule 
-  : {
-      start: () => Promise.resolve(),
-      stop: () => Promise.resolve(),
-      destroy: () => Promise.resolve(),
-      removeAllListeners: () => {},
-      set onSpeechStart(val: any) {},
-      get onSpeechStart() { return null; },
-      set onSpeechEnd(val: any) {},
-      get onSpeechEnd() { return null; },
-      set onSpeechResults(val: any) {},
-      get onSpeechResults() { return null; },
-      set onSpeechError(val: any) {},
-      get onSpeechError() { return null; }
-    };
+// Safe Native Module Check (Prevents Expo Go Crash)
+let ExpoSpeechRecognitionModule: any = null;
+try {
+  ExpoSpeechRecognitionModule = require('expo-speech-recognition').ExpoSpeechRecognitionModule;
+} catch (e) {
+  console.log('Native Speech Recognition Module not found - running in Safe Mode');
+}
+
+const Voice = {
+  start: async (locale: string = 'en-US') => {
+    try {
+      if (ExpoSpeechRecognitionModule) {
+        const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (result.granted) {
+          ExpoSpeechRecognitionModule.start({ lang: locale });
+        }
+      } else {
+        Alert.alert("Notice", "Voice recognition requires a native build.");
+      }
+    } catch (e) {
+      console.log('Error starting speech recognition:', e);
+    }
+  },
+  stop: async () => {
+    try {
+      if (ExpoSpeechRecognitionModule) {
+        ExpoSpeechRecognitionModule.stop();
+      }
+    } catch (e) {
+      console.log('Error stopping speech recognition:', e);
+    }
+  },
+  destroy: async () => {
+    try {
+      if (ExpoSpeechRecognitionModule) {
+        ExpoSpeechRecognitionModule.stop();
+      }
+    } catch (e) {
+      console.log('Error destroying speech recognition:', e);
+    }
+  },
+  removeAllListeners: () => {},
+  onSpeechStart: null,
+  onSpeechEnd: null,
+  onSpeechResults: null,
+  onSpeechError: null,
+};
 
 const DEV_BACKEND_IP = '10.182.110.71'; 
 const BASE_URL = `http://${DEV_BACKEND_IP}:5000`;
 const API_BASE_URL = `${BASE_URL}/api`; 
+const RATE_PER_KM = 8; // ₹8 / km standard rate
 
 interface LocationCoords {
   latitude: number;
@@ -43,6 +85,13 @@ interface ChatMessage {
   timestamp: string;
 }
 
+interface SpareItem {
+  id: string;
+  name: string;
+  price: number;
+  imageUri: string | null;
+}
+
 export default function HomeScreen() {
   const socketRef = useRef<Socket | null>(null);
 
@@ -52,35 +101,49 @@ export default function HomeScreen() {
   const [lang, setLang] = useState<'en' | 'hi'>('en'); 
   const mapRef = useRef<MapView>(null);
 
+  // === USER & AUTH STATES ===
   const [userLoggedIn, setUserLoggedIn] = useState(false);
-  const [userOtpSent, setUserOtpSent] = useState(false);
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
-  const [userOtp, setUserOtp] = useState(['', '', '', '']); 
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+
+  // === SERVICE REQUEST CONFIGURATION STATES ===
   const [modalVisible, setModalVisible] = useState(false);
-  const [activeService, setActiveService] = useState(''); 
-  
-  const [selectedVehicle, setSelectedVehicle] = useState('car'); 
-  const [fuelQuantity, setFuelQuantity] = useState('2L'); 
-  const [fuelType, setFuelType] = useState('petrol'); 
-  const [tyreType, setTyreType] = useState('front'); 
-  const [tyreStructure, setTyreStructure] = useState('tubeless'); 
+  const [activeService, setActiveService] = useState('Mechanic'); 
+  const [selectedVehicle, setSelectedVehicle] = useState('bike'); 
   const [selectedProblem, setSelectedProblem] = useState('Engine Issue'); 
   const [customDescription, setCustomDescription] = useState('');
   const [isListening, setIsListening] = useState(false);
 
-  const [mechanicsList, setMechanicsList] = useState<any[]>([]);
   const [trackingRequest, setTrackingRequest] = useState<any | null>(null);
   const [incomingSOS, setIncomingSOS] = useState<any | null>(null); 
-  const [etaTime, setEtaTime] = useState(12);
+  
+  // === OTP & RATING STATES ===
+  const [arrivalOTP, setArrivalOTP] = useState('1234');
+  const [serviceClosureOTP, setServiceClosureOTP] = useState('4739'); 
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [selectedStars, setSelectedStars] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [partnerClosureOtpInput, setPartnerClosureOtpInput] = useState('');
+  const [partnerArrivalOtpInput, setPartnerArrivalOtpInput] = useState('');
+  const [jobStatus, setJobStatus] = useState<'assigned' | 'arrived' | 'inprogress' | 'completed'>('assigned');
+
+  // === LIVE BILLING & FARE STATES ===
+  const [distanceKm, setDistanceKm] = useState<number>(4.5);
+  const [travelFare, setTravelFare] = useState<number>(36);
+  const [billingItems, setBillingItems] = useState<SpareItem[]>([]);
+  const [totalBillAmount, setTotalBillAmount] = useState<number>(36);
+  const [newPartName, setNewPartName] = useState('');
+  const [newPartImage, setNewPartImage] = useState<string | null>(null);
+
+  // === DYNAMIC CHAT CHANNELS ===
   const [chatModalVisible, setChatModalVisible] = useState(false);
   const [typedMessage, setTypedMessage] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
-  const userOtpRefs = [useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null)];
-
-  // === PARTNER STATES ===
+  // === PARTNER SYSTEM STATES ===
   const [partnerLoggedIn, setPartnerLoggedIn] = useState(false);
+  const [isPartnerOnline, setIsPartnerOnline] = useState<boolean>(true);
   const [isRegistering, setIsRegistering] = useState(false); 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null); 
   const [partnerName, setPartnerName] = useState('');
@@ -90,95 +153,231 @@ export default function HomeScreen() {
   const [fetchingAddress, setFetchingAddress] = useState(false);
   const [serviceType, setServiceType] = useState('Mechanic');
 
-  // === IMAGE PICKER FUNCTION ===
-  const pickPartnerImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert("Permission Required", "Bhai photo ke liye gallery permission chahiye!");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setPartnerAvatar(result.assets[0].uri);
-    }
-  };
-
+  // Dynamic Strict Localization Dictionary
   const dictionary = useMemo(() => ({
     en: {
+      appName: '🚗 VehicleHelp',
       tagline: 'Instant Roadside Support Anywhere',
-      userWelcome: 'Welcome Driver 👋',
-      partnerWelcome: 'Partner Workspace Dashboard 🛠️',
-      userVerify: 'Secure User Verification Profile',
-      partnerQuick: 'Registered Partner Phone Login',
-      shopReg: 'New Garage/Shop Registration Form',
-      emergencyTitle: '🚨 Emergency Road Assistance Services',
-      puncture: 'Puncture', fuel: 'Fuel Delivery', mechanic: 'Mechanic Visit',
-      vehicleType: '🛸 1. Select Vehicle Type:',
-      problemType: '⚙️ 2. Select Common Problem:',
-      customMsgPlaceholder: 'Type your issue or tap mic to speak...',
-      broadcastBtn: 'Send Request', 
-      fuelCat: '⛽ Select Fuel Category:',
-      quantity: '🛢️ Quantity Required:',
-      tyreLoc: '📍 Select Tyre Location:',
-      tyreKind: '⭕ Select Tyre Structure Type:',
-      shopLocationLabel: 'Shop Exact Coordinates/Address:',
-      ownerName: 'Mechanic Owner Name:',
-      shopNamePlace: 'Shop / Garage Name',
-      fetchLocationBtn: '📍 Fetch Current GPS Address',
-      nearbyHeading: '📡 Nearest Active Support Providers:'
+      selectModeHeader: 'Select Mode',
+      selectModeSubtitle: 'Choose your portal to get started',
+      driverPortalTitle: 'Driver Portal',
+      driverPortalDesc: 'Request emergency roadside assistance',
+      partnerPortalTitle: 'Partner Portal',
+      partnerPortalDesc: 'Accept nearby distress calls & requests',
+      driverLoginHeader: 'Driver Quick Access',
+      driverNamePlace: 'Driver Name',
+      mobilePlace: 'Mobile Number',
+      enterDriverDash: 'Enter Driver Dashboard 🔓',
+      yourLocation: 'Your Location',
+      emergencyPoint: 'Emergency Origin',
+      selectServiceHeader: 'Select Emergency Service Required:',
+      mechanicService: 'Mechanic Breakdown',
+      punctureService: 'Tyre Puncture',
+      fuelService: 'Fuel Delivery',
+      etaText: 'ETA: 10 Mins',
+      totalPayable: 'Total Bill Amount:',
+      closeCodeLabel: 'Service Closure Code:',
+      closeCodeNote: 'Share this 4-digit OTP code with partner once job is completed.',
+      chatBtnText: 'Open Live Chat 💬',
+      completeRateBtn: 'Complete & Rate Service ⭐',
+      logoutText: 'Logout Session 🛑',
+      shopReg: 'Garage/Partner Registration',
+      partnerQuick: 'Partner Quick Login',
+      uploadPhotoText: 'Upload Garage Photo 📷',
+      ownerName: 'Owner / Mechanic Name:',
+      ownerNamePlace: 'e.g. Nilesh Singh',
+      garageNameLabel: 'Garage / Workshop Title:',
+      shopNamePlace: 'e.g. Chauhan Motors',
+      categoryTypeLabel: 'Select Category Type:',
+      generalMechanicLabel: 'General Mechanic & Repair',
+      punctureFixingLabel: 'Tyre Puncture Service',
+      emergencyFuelLabel: 'Emergency Fuel Delivery',
+      shopLocationLabel: 'Workshop Location Address:',
+      storeAddressPlace: 'Enter complete street address',
+      fetchLocationBtn: '📍 Fetch Live GPS Address',
+      phonePlaceholder: 'Enter 10-Digit Phone Number',
+      alreadyRegUser: 'Already registered? Login here',
+      createPartnerAccountLink: 'New Garage? Register Partner Account',
+      goBack: '← Switch Back to Role Selection',
+      verifyLaunchPartner: 'Verify & Launch Partner Account 🔓',
+      onlineStatus: '● ONLINE & ACTIVE',
+      offlineStatus: '○ OFFLINE MODE',
+      offlineNotice: 'You are OFFLINE. Switch ON to accept requests.',
+      alertReceivedTitle: '🚨 Emergency SOS Request Received',
+      driverNameLabel: 'Driver:',
+      issueLogsLabel: 'Issue:',
+      travelLabel: 'Travel',
+      bonusLabel: 'Fare',
+      arrivalOtpPlace: 'Enter Driver\'s 4-Digit Arrival OTP',
+      verifyArrivalBtn: 'Verify Driver Arrival OTP',
+      addPartHeading: 'Add Spare Parts / Labor Cost',
+      partNamePlace: 'Part Name / Service Description',
+      uploadPartImg: '📷 Snap Part Photo',
+      aiFetchBtn: 'Add Part Item',
+      partnerOtpInputLabel: 'Enter Driver Service Closure OTP:',
+      partnerOtpPlaceholder: '4-Digit Code',
+      partnerVerifyActionBtn: 'Complete Job & Payment ✔️',
+      rejectClearText: 'Decline / Clear Request',
+      waitingRequests: 'Listening for incoming roadside SOS requests...',
+      logoutWorkstation: 'Exit Partner Portal 🛑',
+      configureReq: 'Configure Emergency Request',
+      vehicleType: 'Select Vehicle Category:',
+      bikeOption: '🏍️ Bike',
+      carOption: '🚗 Car',
+      autoOption: '🛺 Auto',
+      otherCustomText: '🚚 Other',
+      problemType: 'Select Problem Type:',
+      customDescTitle: 'Additional Notes / Voice Dictation:',
+      customMsgPlaceholder: 'e.g. Engine stopped suddenly near highway',
+      tipMessage: '💡 Tip: Stay inside your vehicle in unsafe locations.',
+      broadcastBtn: 'Broadcast SOS Alert 📢',
+      cancelText: 'Cancel & Go Back',
+      srvFeedbackTitle: 'Rate Service Experience',
+      srvFeedbackDesc: 'Please rate the mechanic speed and repair quality.',
+      srvFeedbackPlace: 'Write your experience feedback (optional)...',
+      submitStarRating: 'Submit Rating & Close',
+      liveChatTitle: 'Live Assistance Chat',
+      chatInputPlace: 'Type message...',
+      sendText: 'Send',
+      closeRoomText: 'Close Chat',
+      successLabel: 'Success',
+      errorLabel: 'Error',
+      srvSuccessMsg: 'Service completed successfully!',
+      incorrectCodeMsg: 'Incorrect closure code. Please verify.',
     },
     hi: {
-      tagline: 'कहीं भी कहीं भी तुरंत रोड असिस्टेंस सहायता',
-      userWelcome: 'आपका स्वागत है वाहन चालक 👋',
-      partnerWelcome: 'पार्टनर वर्कस्पेस डैशबोर्ड 🛠️',
-      userVerify: 'सुरक्षित यूज़र वेरिफिकेशन प्रोफाइल',
-      partnerQuick: 'पार्टनर लॉगिन (पंजीकृत मोबाइल नंबर)',
-      shopReg: 'दुकान का नया रजिस्ट्रेशन फॉर्म',
-      emergencyTitle: '🚨 आपातकालीन सहायता सेवाएं',
-      puncture: 'टायर पंचर सुधार', fuel: 'इमर्जेंसी ईंधन/तेल', mechanic: 'मैकेनिक को बुलाएं',
-      vehicleType: '🛸 1. वाहन का प्रकार चुनें:',
-      problemType: '⚙️ 2. होने वाली मुख्य समस्या चुनें:',
-      customMsgPlaceholder: 'अपनी समस्या लिखें या माइक बटन दबाकर बोलें...',
-      broadcastBtn: 'Send Request', 
-      fuelCat: '⛽ तेल का प्रकार चुनें:',
-      quantity: '🛢️ ईंधन की मात्रा चुनें:',
-      tyreLoc: '📍 टायर का स्थान चुनें:',
-      tyreKind: '⭕ टायर का प्रकार चुनें:',
-      shopLocationLabel: 'दुकान का पूरा पता / लाइव लोकेशन:',
-      ownerName: 'दुकान मालिक/मैकेनिक का नाम:',
-      shopNamePlace: 'दुकान या गैराज का नाम',
-      fetchLocationBtn: '📍 लाइव करंट लोकेशन ऑटो-फेट्च करें',
-      nearbyHeading: '📡 आस-पास सक्रिय सहायता केंद्र:'
+      appName: '🚗 VehicleHelp',
+      tagline: 'कहीं भी तुरंत रोड साइड सहायता पाएं',
+      selectModeHeader: 'मोड चुनें',
+      selectModeSubtitle: 'आगे बढ़ने के लिए अपना पोर्टल चुनें',
+      driverPortalTitle: 'ड्राइवर पोर्टल',
+      driverPortalDesc: 'आपातकालीन रोड साइड सहायता मांगें',
+      partnerPortalTitle: 'पार्टनर पोर्टल',
+      partnerPortalDesc: 'आस-पास की आपातकालीन कॉल स्वीकार करें',
+      driverLoginHeader: 'ड्राइवर लॉगिन',
+      driverNamePlace: 'ड्राइवर का नाम',
+      mobilePlace: 'मोबाइल नंबर',
+      enterDriverDash: 'ड्राइवर डैशबोर्ड में प्रवेश करें 🔓',
+      yourLocation: 'आपका स्थान',
+      emergencyPoint: 'आपातकालीन बिंदु',
+      selectServiceHeader: 'आवश्यक आपातकालीन सेवा चुनें:',
+      mechanicService: 'मैकेनिक सहायता',
+      punctureService: 'टायर पंक्चर',
+      fuelService: 'ईंधन वितरण',
+      etaText: 'समय: 10 मिनट',
+      totalPayable: 'कुल भुगतान राशि:',
+      closeCodeLabel: 'सर्विस क्लोजर कोड:',
+      closeCodeNote: 'काम पूरा होने पर यह 4-अंकीय OTP मैकेनिक को दें।',
+      chatBtnText: 'लाइव चैट खोलें 💬',
+      completeRateBtn: 'सर्विस पूर्ण करें और रेटिंग दें ⭐',
+      logoutText: 'लॉगआउट करें 🛑',
+      shopReg: 'गैराज/पार्टनर पंजीकरण',
+      partnerQuick: 'पार्टनर त्वरित लॉगिन',
+      uploadPhotoText: 'गैराज का फोटो अपलोड करें 📷',
+      ownerName: 'मालिक / मैकेनिक का नाम:',
+      ownerNamePlace: 'उदा. नीलेश सिंह',
+      garageNameLabel: 'गैराज / वर्कशॉप का नाम:',
+      shopNamePlace: 'उदा. चौहान मोटर्स',
+      categoryTypeLabel: 'श्रेणी का प्रकार चुनें:',
+      generalMechanicLabel: 'सामान्य मैकेनिक और मरम्मत',
+      punctureFixingLabel: 'टायर पंक्चर सेवा',
+      emergencyFuelLabel: 'आपातकालीन ईंधन वितरण',
+      shopLocationLabel: 'कार्यशाला का पता:',
+      storeAddressPlace: 'पूरा पता दर्ज करें',
+      fetchLocationBtn: '📍 लाइव जीपीएस पता प्राप्त करें',
+      phonePlaceholder: '10-अंकीय मोबाइल नंबर दर्ज करें',
+      alreadyRegUser: 'पहले से पंजीकृत हैं? लॉगिन करें',
+      createPartnerAccountLink: 'नया गैराज? पार्टनर खाता बनाएं',
+      goBack: '← भूमिका चयन पर वापस जाएं',
+      verifyLaunchPartner: 'सत्यापित करें और खाता शुरू करें 🔓',
+      onlineStatus: '● ऑनलाइन एवं सक्रिय',
+      offlineStatus: '○ ऑफ़लाइन मोड',
+      offlineNotice: 'आप ऑफ़लाइन हैं। अनुरोध स्वीकार करने के लिए ऑन करें।',
+      alertReceivedTitle: '🚨 आपातकालीन SOS अनुरोध प्राप्त हुआ',
+      driverNameLabel: 'चालक:',
+      issueLogsLabel: 'समस्या:',
+      travelLabel: 'दूरी',
+      bonusLabel: 'राशि',
+      arrivalOtpPlace: 'ड्राइवर का 4-अंकीय अराइवल OTP दर्ज करें',
+      verifyArrivalBtn: 'अराइवल OTP सत्यापित करें',
+      addPartHeading: 'स्पेयर पार्ट्स / श्रम लागत जोड़ें',
+      partNamePlace: 'पार्ट का नाम / विवरण',
+      uploadPartImg: '📷 पार्ट का फोटो लें',
+      aiFetchBtn: 'पार्ट जोड़ें',
+      partnerOtpInputLabel: 'ड्राइवर का सर्विस क्लोजर OTP दर्ज करें:',
+      partnerOtpPlaceholder: '4-अंकीय कोड',
+      partnerVerifyActionBtn: 'कार्य पूर्ण और भुगतान करें ✔️',
+      rejectClearText: 'अस्वीकार / साफ़ करें',
+      waitingRequests: 'आस-पास के लाइव SOS अनुरोधों की प्रतीक्षा की जा रही है...',
+      logoutWorkstation: 'पार्टनर पोर्टल से बाहर निकलें 🛑',
+      configureReq: 'आपातकालीन अनुरोध दर्ज करें',
+      vehicleType: 'वाहन श्रेणी चुनें:',
+      bikeOption: '🏍️ बाइक',
+      carOption: '🚗 कार',
+      autoOption: '🛺 ऑटो',
+      otherCustomText: '🚚 अन्य',
+      problemType: 'समस्या का प्रकार चुनें:',
+      customDescTitle: 'अतिरिक्त नोट्स / वॉयस संदेश:',
+      customMsgPlaceholder: 'उदा. हाईवे के पास इंजन अचानक बंद हो गया',
+      tipMessage: '💡 सुझाव: असुरक्षित स्थानों में वाहन के अंदर रहें।',
+      broadcastBtn: 'SOS अलर्ट प्रसारित करें 📢',
+      cancelText: 'रद्द करें और वापस जाएं',
+      srvFeedbackTitle: 'सेवा अनुभव को रेट करें',
+      srvFeedbackDesc: 'कृपया मैकेनिक की गति और मरम्मत गुणवत्ता का मूल्यांकन करें।',
+      srvFeedbackPlace: 'अपना अनुभव लिखें (वैकल्पिक)...',
+      submitStarRating: 'रेटिंग सबमिट करें',
+      liveChatTitle: 'लाइव सहायता चैट',
+      chatInputPlace: 'संदेश टाइप करें...',
+      sendText: 'भेजें',
+      closeRoomText: 'चैट बंद करें',
+      successLabel: 'सफलता',
+      errorLabel: 'त्रुटि',
+      srvSuccessMsg: 'सेवा सफलतापूर्वक पूर्ण कर दी गई है!',
+      incorrectCodeMsg: 'गलत क्लोजर कोड!',
     }
   }), []);
 
-  const fetchNearbyDatabasePartners = useCallback(async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/partners`);
-      if (response.data) setMechanicsList(response.data); 
-    } catch (error) { 
-      console.log("Network status logs: API unreachable currently."); 
+  const dynamicProblemsList = useMemo(() => {
+    if (lang === 'hi') {
+      return [
+        { label: 'इंजन चालू नहीं हो रहा / बैटरी समस्या', value: 'Engine Issue' },
+        { label: 'ब्रेक फेलियर / फ्लूइड लीक', value: 'Brake Issue' },
+        { label: 'ओवरहीटिंग / धुआँ निकलना', value: 'Overheating' },
+        { label: 'क्लच / गियर खराबी', value: 'Gear Issue' }
+      ];
     }
-  }, []);
+    return [
+      { label: 'Engine Not Starting / Battery Issue', value: 'Engine Issue' },
+      { label: 'Brake Failure / Fluid Leak', value: 'Brake Issue' },
+      { label: 'Overheating / Smoke', value: 'Overheating' },
+      { label: 'Clutch / Gear Transmission Breakdown', value: 'Gear Issue' }
+    ];
+  }, [lang]);
+
+  // Distance Calculation Helper
+  const calculateDistanceKm = (coords1: LocationCoords, coords2: LocationCoords): number => {
+    const toRad = (val: number) => (val * Math.PI) / 180;
+    const R = 6371; 
+    const dLat = toRad(coords2.latitude - coords1.latitude);
+    const dLon = toRad(coords2.longitude - coords1.longitude);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(coords1.latitude)) * Math.cos(toRad(coords2.latitude)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return parseFloat((R * c).toFixed(1));
+  };
 
   const checkSession = useCallback(async () => {
     try {
       const savedUser = await AsyncStorage.getItem('user_session');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
-        setUserName(parsed.name); setUserPhone(parsed.phone);
+        setUserName(parsed.name || 'Driver'); setUserPhone(parsed.phone); setUserAvatar(parsed.avatar || null);
         setUserLoggedIn(true); setAuthSelection('USER');
       }
       const savedPartner = await AsyncStorage.getItem('partner_session');
       if (savedPartner) {
         const parsed = JSON.parse(savedPartner);
         setPartnerPhone(parsed.phone); setPartnerName(parsed.name);
-        setShopName(parsed.shopName); setShopAddress(parsed.shopAddress || '');
+        setShopName(parsed.shopName); setShopAddress(parsed.shopAddress || ''); setPartnerAvatar(parsed.avatar || null);
         setPartnerLoggedIn(true); setAuthSelection('PARTNER');
       }
     } catch (e) { 
@@ -190,10 +389,7 @@ export default function HomeScreen() {
 
   const getUserLocation = useCallback(async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert("Permission Denied", "GPS Permission allow kijiye live tracking ke liye!");
-      return;
-    }
+    if (status !== 'granted') return;
     try {
       let currentPosition = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setLocation({ latitude: currentPosition.coords.latitude, longitude: currentPosition.coords.longitude });
@@ -203,602 +399,621 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // Socket Listener
   useEffect(() => {
-    socketRef.current = io(BASE_URL, {
-      transports: ['websocket'],
-      autoConnect: true
-    });
+    if (!socketRef.current) {
+      socketRef.current = io('https://vehiclehelp-backend.onrender.com', { 
+        transports: ['websocket', 'polling'], 
+        autoConnect: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 2000
+      });
+    }
 
     const currentSocket = socketRef.current;
 
-    currentSocket.on("connect", () => { 
-      console.log("Connected to server via socket:", currentSocket.id); 
-    });
-    
-    currentSocket.on("NEW_SOS_REQUEST", (data) => {
-      setIncomingSOS(data);
-      Alert.alert("🚨 NAYA EMERGENCY SOS ALERT!", `${data.userName} ko ${data.serviceType.toUpperCase()} ki zaroorat hai!`);
-    });
+    const handleNewSOS = (data: any) => {
+      const dist = data.latitude && location ? calculateDistanceKm(location, { latitude: data.latitude, longitude: data.longitude }) : 4.5;
+      const fare = dist * RATE_PER_KM;
 
-    currentSocket.on("BOOKING_STATUS_CHANGED", (data) => {
-      if (data.status === 'accepted') {
-        setTrackingRequest({ partnerName: data.partnerName, shopName: data.shopName, rating: "4.9 ⭐" });
-        Alert.alert("🚨 Request Accepted!", `${data.partnerName} aapki madad ke liye nikal chuka hai.`);
-      }
-    });
+      setIncomingSOS({ ...data, calculatedDist: dist, calculatedFare: fare });
+      setJobStatus('assigned');
+      setDistanceKm(dist);
+      setTravelFare(fare);
+      Alert.alert(dictionary[lang].alertReceivedTitle, `${data.userName} - ${dist} KM (Fare: ₹${fare})`);
+    };
 
-    // 🛡️ ULTRA SAFE EVENT HANDLERS ASSIGNMENT
-    if (NativeVoiceModule && typeof NativeVoiceModule.start === 'function' && Voice) {
-      try {
-        console.log("Voice module is available, assigning event handlers safely.");
-        Object.assign(Voice, {
-          onSpeechStart: () => setIsListening(true),
-          onSpeechEnd: () => setIsListening(false),
-          onSpeechResults: (e: any) => {
-            if (e.value && e.value.length > 0) { setCustomDescription(e.value[0]); }
-          },
-          onSpeechError: (e: any) => {
-            console.log("Internal speech error ignored:", e);
-          }
-        });
-      } catch (voiceAssignError) {
-        console.log("Voice alignment bypassed smoothly:", voiceAssignError);
-      }
-    }
+    currentSocket.off("NEW_SOS_REQUEST");
+    currentSocket.on("NEW_SOS_REQUEST", handleNewSOS);
 
     checkSession(); 
     getUserLocation(); 
-    fetchNearbyDatabasePartners(); 
 
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'active' && currentSocket && !currentSocket.connected) {
-        currentSocket.connect();
-      }
-    });
-    
     return () => { 
-      // Safe cleanup strategy to prevent null property updates
-      if (NativeVoiceModule && typeof NativeVoiceModule.destroy === 'function' && Voice) {
-        try {
-          Voice.destroy()
-            .then(() => { 
-              try {
-                if (typeof Voice.removeAllListeners === 'function') Voice.removeAllListeners(); 
-              } catch(e){}
-            })
-            .catch(err => console.log("Cleanup handled safely:", err)); 
-        } catch (cleanupErr) {
-          console.log("Intercepted block unmount cleanup error:", cleanupErr);
-        }
-      }
-      subscription.remove();
       if (currentSocket) {
-        currentSocket.off("connect");
-        currentSocket.off("NEW_SOS_REQUEST");
-        currentSocket.off("BOOKING_STATUS_CHANGED");
-        currentSocket.disconnect();
+        currentSocket.off("NEW_SOS_REQUEST", handleNewSOS);
       }
     };
-  }, [checkSession, getUserLocation, fetchNearbyDatabasePartners, authSelection, partnerLoggedIn, userLoggedIn]);
+  }, [checkSession, getUserLocation]);
 
   useEffect(() => {
-    let timer: any;
-    if (trackingRequest && etaTime > 1) {
-      timer = setInterval(() => { setEtaTime((prev) => prev - 1); }, 60000);
-    }
-    return () => clearInterval(timer);
-  }, [trackingRequest, etaTime]);
+    const spareTotal = billingItems.reduce((sum, item) => sum + item.price, 0);
+    setTotalBillAmount(travelFare + spareTotal);
+  }, [travelFare, billingItems]);
 
-  const triggerVoiceDictation = async () => {
-    if (!NativeVoiceModule || typeof NativeVoiceModule.start !== 'function') {
-      setIsListening(true);
-      setTimeout(() => { 
-        setCustomDescription("Mera gaadi kharab ho gaya hai, help chahiye."); 
-        setIsListening(false); 
-      }, 1200);
-      return;
+  const pickImage = async (type: 'USER' | 'PARTNER') => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+    if (!result.canceled) {
+      if (type === 'USER') setUserAvatar(result.assets[0].uri);
+      else setPartnerAvatar(result.assets[0].uri);
     }
+  };
 
-    try {
-      if (isListening) { 
-        await Voice.stop(); 
-        setIsListening(false); 
-      } else { 
-        setCustomDescription(""); 
-        await Voice.start('hi-IN'); 
-      }
-    } catch (error) {
-      setIsListening(false);
-      console.log("Voice module bypass action logs:", error);
+  const triggerCameraForPart = async () => {
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.5,
+    });
+    if (!result.canceled) {
+      setNewPartImage(result.assets[0].uri);
     }
   };
 
   const fetchLiveCurrentShopAddress = async () => {
-    if (!location) return;
     setFetchingAddress(true);
+    if (location) {
+      try {
+        let reverseGps = await Location.reverseGeocodeAsync(location);
+        if (reverseGps.length > 0) {
+          const item = reverseGps[0];
+          setShopAddress(`${item.name || ''} ${item.street || ''}, ${item.city || ''}`);
+        }
+      } catch (e) {}
+    }
+    setFetchingAddress(false);
+  };
+
+  const handlePartnerSubmitRegistration = async () => {
+    if (!partnerPhone || (isRegistering && (!shopName || !partnerName))) {
+      Alert.alert(dictionary[lang].errorLabel, lang === 'hi' ? "कृपया सभी आवश्यक विवरण भरें।" : "Please fill in all mandatory details.");
+      return;
+    }
+    const payload = {
+      phone: partnerPhone,
+      name: partnerName || "Mechanic Owner",
+      shopName: shopName || "Chauhan Workshop",
+      shopAddress: shopAddress,
+      serviceType: serviceType,
+      avatar: partnerAvatar,
+      latitude: location?.latitude || 0,
+      longitude: location?.longitude || 0
+    };
     try {
-      let reverseGeo = await Location.reverseGeocodeAsync({ latitude: location.latitude, longitude: location.longitude });
-      if (reverseGeo.length > 0) {
-        let addr = reverseGeo[0];
-        setShopAddress(`${addr.name || ''}, ${addr.street || ''}, ${addr.city || ''}`);
-      }
-    } catch (error) { 
-      console.log(error); 
-    } finally { 
-      setFetchingAddress(false); 
+      await axios.post(`${API_BASE_URL}/partners/register`, payload);
+    } catch (e) {}
+    await AsyncStorage.setItem('partner_session', JSON.stringify(payload));
+    setPartnerLoggedIn(true);
+  };
+
+  const triggerVoiceDictation = () => {
+    if (isListening) {
+      Voice.stop();
+      setIsListening(false);
+    } else {
+      setIsListening(true);
+      Voice.start(lang === 'hi' ? 'hi-IN' : 'en-US');
     }
   };
 
   const handleSOSBroadcast = async () => {
-    if (!location) {
-      Alert.alert("GPS Error", "Bhai abhi tak phone ki live location nahi mila hai. Intezar karein!");
-      return;
-    }
-
+    if (!location) return;
     setModalVisible(false);
+    let finalDescription = `[${activeService}] Vehicle: ${selectedVehicle.toUpperCase()}. ${customDescription}`;
 
-    let finalDescription = '';
-    if (customDescription.trim()) {
-      finalDescription = customDescription;
-    } else {
-      if (activeService === 'Fuel') {
-        finalDescription = `Need Fuel: ${fuelQuantity} of ${fuelType.toUpperCase()} for ${selectedVehicle.toUpperCase()}`;
-      } else if (activeService === 'Puncture') {
-        finalDescription = `Tyre Puncture: ${tyreType.toUpperCase()} tyre (${tyreStructure.toUpperCase()}) of ${selectedVehicle.toUpperCase()}`;
-      } else if (activeService === 'Mechanic') {
-        finalDescription = `Mechanic Needed: ${selectedProblem || 'General Issue'} for ${selectedVehicle.toUpperCase()}`;
-      } else {
-        finalDescription = `Emergency Assistance Needed for ${selectedVehicle.toUpperCase()}`;
-      }
-    }
+    const simulatedMechCoords = { latitude: location.latitude + 0.012, longitude: location.longitude + 0.011 };
+    const calculatedKm = calculateDistanceKm(location, simulatedMechCoords);
+    const calculatedFare = calculatedKm * RATE_PER_KM;
+
+    setDistanceKm(calculatedKm);
+    setTravelFare(calculatedFare);
 
     try {
       const payload = {
-        userName: userName || "Test Driver", 
-        userMobile: userPhone || "9999999999", 
-        serviceType: activeService.toLowerCase() || "mechanic",         
-        vehicleType: selectedVehicle || "car",      
+        userName: userName || "Driver Identity", 
+        userMobile: userPhone, 
+        serviceType: activeService,         
+        vehicleType: selectedVehicle,      
         description: finalDescription,      
-        pickupLocation: "Live GPS Coordinates",
         latitude: location.latitude, 
-        longitude: location.longitude 
+        longitude: location.longitude,
+        distanceKm: calculatedKm,
+        travelFare: calculatedFare
       };
-  
-      console.log("🌐 SENDING LIVE DATA TO BACKEND:", payload);
       await axios.post(`${API_BASE_URL}/bookings/create`, payload);
-      Alert.alert("Broadcast Live", "SOS sent! Waiting for near active partner dashboard confirmation...");
+      
+      setTimeout(() => {
+        setTrackingRequest({ partnerName: "Chauhan Garage", shopName: "Nilesh Hub", rating: "4.8 ⭐" });
+        setJobStatus('assigned');
+      }, 1000);
     } catch (error) {
-      console.log("Network logic handling mock trigger.");
+      setTrackingRequest({ partnerName: "Chauhan Garage", shopName: "Nilesh Hub", rating: "4.8 ⭐" });
+      setJobStatus('assigned');
     }
   };
 
-  const handleUserSendOtp = async () => {
-    if (!userName || userPhone.length !== 10) {
-      Alert.alert("Validation Error", "Please enter valid credential inputs.");
-      return;
-    }
-    try {
-      await axios.post(`${API_BASE_URL}/auth/send-otp`, { phone: userPhone, name: userName });
-      setUserOtpSent(true);
-    } catch (error) { 
-      setUserOtpSent(true); 
+  const handleVerifyArrivalOtp = () => {
+    if (partnerArrivalOtpInput === arrivalOTP) {
+      setJobStatus('inprogress');
+      Alert.alert(dictionary[lang].successLabel, lang === 'hi' ? "आगमन सत्यापित! कार्य शुरू हुआ।" : "Arrival verified! Job started.");
+    } else {
+      Alert.alert(dictionary[lang].errorLabel, lang === 'hi' ? "अमान्य अराइवल OTP" : "Invalid arrival OTP.");
     }
   };
 
-  const autoSubmitOtpWithData = async (completeOtp: string) => {
-    if (completeOtp.length !== 4) return;
-    try {
-      const response = await axios.post(`${API_BASE_URL}/auth/verify-otp`, { phone: userPhone, otp: completeOtp });
-      if (response.data) {
-        await AsyncStorage.setItem('user_session', JSON.stringify({ name: userName, phone: userPhone, token: response.data.token }));
-        setUserLoggedIn(true);
-        getUserLocation();
-      }
-    } catch (error) {
-      await AsyncStorage.setItem('user_session', JSON.stringify({ name: userName, phone: userPhone, token: 'offline_token' }));
-      setUserLoggedIn(true);
-      getUserLocation();
+  const handleMechanicAddItem = () => {
+    if (!newPartName) return;
+    const newItem: SpareItem = {
+      id: Date.now().toString(),
+      name: newPartName,
+      price: 250, 
+      imageUri: newPartImage
+    };
+    setBillingItems(prev => [...prev, newItem]);
+    setNewPartName('');
+    setNewPartImage(null);
+  };
+
+  const handleVerifyClosureOtpAndClose = () => {
+    if (partnerClosureOtpInput === serviceClosureOTP) {
+      setJobStatus('completed');
+      Alert.alert(dictionary[lang].successLabel, dictionary[lang].srvSuccessMsg);
+      setIncomingSOS(null);
+    } else {
+      Alert.alert(dictionary[lang].errorLabel, dictionary[lang].incorrectCodeMsg);
     }
   };
 
-  const handleOtpInputChange = (text: string, index: number) => {
-    const newOtp = [...userOtp];
-    newOtp[index] = text;
-    setUserOtp(newOtp);
-
-    if (text.length > 0 && index < 3) {
-      userOtpRefs[index + 1].current?.focus();
-    }
-
-    const fullOtpCombined = newOtp.join('');
-    if (fullOtpCombined.length === 4) {
-      autoSubmitOtpWithData(fullOtpCombined);
-    }
-  };
-
-  const handleOtpKeyPress = (e: any, index: number) => {
-    if (e.nativeEvent.key === 'Backspace' && userOtp[index] === '' && index > 0) {
-      const newOtp = [...userOtp];
-      newOtp[index - 1] = ''; 
-      setUserOtp(newOtp);
-      userOtpRefs[index - 1].current?.focus(); 
-    }
+  const submitDriverRating = () => {
+    setRatingModalVisible(false);
+    setTrackingRequest(null);
+    Alert.alert(dictionary[lang].successLabel, lang === 'hi' ? "प्रतिक्रिया सफलतापूर्वक सबमिट की गई!" : "Feedback submitted successfully!");
   };
 
   const handleSendChatMessage = () => {
     if (!typedMessage.trim()) return;
     const newMsg: ChatMessage = {
       id: Date.now().toString(),
-      sender: 'user',
+      sender: authSelection === 'USER' ? 'user' : 'partner',
       text: typedMessage,
-      timestamp: 'Just now'
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-
-    if (socketRef.current) {
-      socketRef.current.emit("SEND_CHAT_MESSAGE", {
-        text: typedMessage,
-        sender: 'user',
-        timestamp: new Date().toLocaleTimeString()
-      });
-    }
-
     setChatMessages(prev => [...prev, newMsg]);
     setTypedMessage('');
   };
 
-  const handleUserVerifyOtp = () => { autoSubmitOtpWithData(userOtp.join('')); };
-  const handlePartnerRegister = async () => { setPartnerLoggedIn(true); };
-  const handlePartnerLogin = async () => { setPartnerLoggedIn(true); };
   const handleSystemLogout = async () => {
     await AsyncStorage.clear();
-    setUserLoggedIn(false); setUserOtpSent(false); setUserOtp(['', '', '', '']);
-    setPartnerLoggedIn(false); setAuthSelection('NONE'); setLocation(null); setIncomingSOS(null); setTrackingRequest(null);
+    setUserLoggedIn(false);
+    setPartnerLoggedIn(false);
+    setAuthSelection('NONE');
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#0F172A" /></View>;
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
+      {/* APP TOP NAVIGATION BAR */}
       <View style={styles.appTopNavBar}>
         <View>
-          <Text style={styles.appLogoMainBrand}>🚗 VehicleHelp</Text>
-          <Text style={styles.topBarWelcomeSubtitle}>{authSelection === 'USER' && userLoggedIn ? `Driver: ${userName} 👋` : 'Instant Support Hub'}</Text>
+          <Text style={styles.appLogoMainBrand}>{dictionary[lang].appName}</Text>
+          <Text style={styles.topBarWelcomeSubtitle}>{dictionary[lang].tagline}</Text>
         </View>
         <TouchableOpacity style={styles.langSquareUnit} onPress={() => setLang(lang === 'en' ? 'hi' : 'en')}>
-          <Text style={{ color: '#FFF', fontSize: 11, fontWeight: 'bold' }}>{lang === 'en' ? 'HI' : 'EN'}</Text>
+          <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>{lang === 'en' ? 'हिन्दी' : 'English'}</Text>
         </TouchableOpacity>
       </View>
 
+      {/* SELECTION LANDING SCREEN */}
       {authSelection === 'NONE' && (
         <View style={styles.landingWrapperCenter}>
-          <Text style={styles.landingMainHeaderBrand}>Welcome to VehicleHelp ✨</Text>
-          <Text style={styles.landingSubheadingBrand}>{dictionary[lang].tagline}</Text>
+          <Text style={styles.landingMainHeaderBrand}>{dictionary[lang].selectModeHeader}</Text>
+          <Text style={styles.landingSubheadingBrand}>{dictionary[lang].selectModeSubtitle}</Text>
           
-          <TouchableOpacity style={[styles.landingBigSelectionBtn, { backgroundColor: '#3B82F6' }]} onPress={() => setAuthSelection('USER')}>
-            <Text style={styles.landingBigBtnIcon}>🚙</Text>
-            <View style={{ marginLeft: 16 }}>
-              <Text style={styles.landingBigBtnTitle}>Continue as Driver</Text>
-              <Text style={styles.landingBigBtnDesc}>Get instant roadside assistance or vehicle repair</Text>
+          <TouchableOpacity style={[styles.landingBigSelectionBtn, { backgroundColor: '#2563EB' }]} onPress={() => setAuthSelection('USER')}>
+            <Text style={styles.landingBigBtnIcon}>🚗 </Text>
+            <View style={{ marginLeft: 12 }}>
+              <Text style={styles.landingBigBtnTitle}>{dictionary[lang].driverPortalTitle}</Text>
+              <Text style={styles.landingBigBtnDesc}>{dictionary[lang].driverPortalDesc}</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.landingBigSelectionBtn, { backgroundColor: '#059669', marginTop: 16 }]} onPress={() => setAuthSelection('PARTNER')}>
-            <Text style={styles.landingBigBtnIcon}>🛠️</Text>
-            <View style={{ marginLeft: 16 }}>
-              <Text style={styles.landingBigBtnTitle}>Register as Service Partner</Text>
-              <Text style={styles.landingBigBtnDesc}>Provide puncture, fuel, or towing services nearby</Text>
+          <TouchableOpacity style={[styles.landingBigSelectionBtn, { backgroundColor: '#0F172A', marginTop: 16 }]} onPress={() => setAuthSelection('PARTNER')}>
+            <Text style={styles.landingBigBtnIcon}>🛠️ </Text>
+            <View style={{ marginLeft: 12 }}>
+              <Text style={styles.landingBigBtnTitle}>{dictionary[lang].partnerPortalTitle}</Text>
+              <Text style={styles.landingBigBtnDesc}>{dictionary[lang].partnerPortalDesc}</Text>
             </View>
           </TouchableOpacity>
         </View>
       )}
 
+      {/* DRIVER / USER WORKFLOW */}
       {authSelection === 'USER' && (
         !userLoggedIn ? (
           <View style={styles.authWrapperCenter}>
             <View style={styles.authDisplayCardFrame}>
-              <Text style={styles.authCardHeaderLabel}>{dictionary[lang].userVerify}</Text>
-              {!userOtpSent ? (
-                <>
-                  <TextInput style={styles.appFormInputBox} placeholder="Driver Full Name" value={userName} onChangeText={setUserName} placeholderTextColor="#94A3B8" />
-                  <TextInput style={styles.appFormInputBox} placeholder="10 Digit Mobile Number" keyboardType="phone-pad" maxLength={10} value={userPhone} onChangeText={setUserPhone} placeholderTextColor="#94A3B8" />
-                  <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#0F172A' }]} onPress={handleUserSendOtp}>
-                    <Text style={styles.authBtnTextString}>Generate Verification OTP 📩</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setAuthSelection('NONE')} style={{ marginTop: 15, alignItems: 'center' }}><Text style={{ color: '#64748B' }}>← Go Back to Front Page</Text></TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.otpHelperNotice}>Enter code dispatched to +91 {userPhone}</Text>
-                  <View style={styles.otpGridRowFlex}>
-                    {[0, 1, 2, 3].map((idx) => (
-                      <TextInput 
-                        key={idx} 
-                        ref={userOtpRefs[idx]} 
-                        style={styles.otpNumericalSquareCell} 
-                        keyboardType="number-pad" 
-                        maxLength={1} 
-                        value={userOtp[idx]} 
-                        onChangeText={(t) => handleOtpInputChange(t, idx)}
-                        onKeyPress={(e) => handleOtpKeyPress(e, idx)}
-                        selectTextOnFocus={true}
-                      />
-                    ))}
-                  </View>
-                  <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#3B82F6' }]} onPress={handleUserVerifyOtp}>
-                    <Text style={styles.authBtnTextString}>Confirm Code & Open Map 🔓</Text>
-                  </TouchableOpacity>
-                </>
-              )}
+              <Text style={styles.authCardHeaderLabel}>{dictionary[lang].driverLoginHeader}</Text>
+              <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].driverNamePlace} value={userName} onChangeText={setUserName} placeholderTextColor="#94A3B8" />
+              <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].mobilePlace} keyboardType="phone-pad" value={userPhone} onChangeText={setUserPhone} placeholderTextColor="#94A3B8" />
+              <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#2563EB' }]} onPress={() => { setUserLoggedIn(true); AsyncStorage.setItem('user_session', JSON.stringify({ name: userName, phone: userPhone })); }}>
+                <Text style={styles.authBtnTextString}>{dictionary[lang].enterDriverDash}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ marginTop: 16 }} onPress={() => setAuthSelection('NONE')}>
+                <Text style={{ textAlign: 'center', color: '#64748B' }}>{dictionary[lang].goBack}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         ) : (
           <View style={{ flex: 1 }}>
-            <View style={styles.mapCanvasContainerFrame}>
-              <MapView ref={mapRef} style={StyleSheet.absoluteFillObject} region={{ latitude: location?.latitude || 28.4595, longitude: location?.longitude || 77.0266, latitudeDelta: 0.015, longitudeDelta: 0.015 }}>
-                {location && <Marker coordinate={location} title="Your Live Spot" pinColor="blue" />}
-              </MapView>
-            </View>
+            <ScrollView style={{ flex: 1 }}>
+              {/* MAP CANVAS */}
+              <View style={styles.mapCanvasContainerFrame}>
+                <MapView
+                  ref={mapRef}
+                  style={{ width: '100%', height: '100%' }}
+                  initialRegion={{
+                    latitude: location ? location.latitude : 28.6139,
+                    longitude: location ? location.longitude : 77.2090,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  }}
+                >
+                  {location && <Marker coordinate={location} title={dictionary[lang].yourLocation} description={dictionary[lang].emergencyPoint} />}
+                </MapView>
+              </View>
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 25 }}>
-              {!trackingRequest ? (
-                <View style={styles.userDashboardDockPanel}>
-                  <Text style={styles.dockMainTitleString}>{dictionary[lang].emergencyTitle}</Text>
-                  <View style={styles.dockThreeButtonSplitRow}>
-                    <TouchableOpacity style={styles.dockModuleButtonUnit} onPress={() => { setActiveService('Puncture'); setModalVisible(true); }}>
-                      <Text style={styles.dockModuleIconGlyph}>🛞</Text>
-                      <Text style={styles.dockModuleLabelText}>{dictionary[lang].puncture}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.dockModuleButtonUnit} onPress={() => { setActiveService('Fuel'); setModalVisible(true); }}>
-                      <Text style={styles.dockModuleIconGlyph}>⛽</Text>
-                      <Text style={styles.dockModuleLabelText}>{dictionary[lang].fuel}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.dockModuleButtonUnit} onPress={() => { setActiveService('Mechanic'); setModalVisible(true); }}>
-                      <Text style={styles.dockModuleIconGlyph}>🛠️</Text>
-                      <Text style={styles.dockModuleLabelText}>{dictionary[lang].mechanic}</Text>
-                    </TouchableOpacity>
-                  </View>
+              {/* SERVICES GRID */}
+              <View style={{ padding: 16 }}>
+                <Text style={styles.servicesGridTitle}>{dictionary[lang].selectServiceHeader}</Text>
+                <View style={styles.servicesGridFlexibleRow}>
+                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Mechanic'); setModalVisible(true); }}>
+                    <Text style={{ fontSize: 24 }}>🛠️</Text>
+                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].mechanicService}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Puncture'); setModalVisible(true); }}>
+                    <Text style={{ fontSize: 24 }}>🛞</Text>
+                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].punctureService}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Fuel'); setModalVisible(true); }}>
+                    <Text style={{ fontSize: 24 }}>⛽</Text>
+                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].fuelService}</Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <View style={styles.activeTrackingRadarPanelCard}>
-                  <Text style={styles.radarPulseHeaderTitle}>⚡ Rescue Unit Dispatched (ETA: {etaTime} Mins)</Text>
-                  <Text style={styles.operatorNameHeadingString}>{trackingRequest.partnerName}</Text>
-                  <Text style={{ fontSize: 12, color: '#64748B' }}>{trackingRequest.shopName}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 10 }}>
-                    <TouchableOpacity style={styles.radarCallActionBtn} onPress={() => Alert.alert("Calling support...")}><Text style={styles.radarCallActionBtnText}>📞 Call {trackingRequest.rating}</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.radarChatActionBtn} onPress={() => setChatModalVisible(true)}><Text style={styles.radarChatActionBtnText}>💬 Chat</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.radarCancelActionBtn} onPress={() => setTrackingRequest(null)}><Text style={styles.radarCancelActionBtnText}>Cancel</Text></TouchableOpacity>
+              </View>
+
+              {/* LIVE TRACKING PANEL */}
+              {trackingRequest && (
+                <View style={styles.trackingDashboardContainer}>
+                  <View style={styles.trackingHeaderFlexRow}>
+                    <View>
+                      <Text style={styles.trackingPartnerNameMainTitle}>{trackingRequest.partnerName}</Text>
+                      <Text style={styles.trackingPartnerShopSubtitle}>{trackingRequest.shopName} • {trackingRequest.rating}</Text>
+                    </View>
+                    <View style={styles.etaDisplayBadgeFrame}>
+                      <Text style={{ color: '#2563EB', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].etaText}</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 6, marginTop: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: 'bold' }}>{dictionary[lang].totalPayable}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#DC2626' }}>₹{totalBillAmount}</Text>
+                  </View>
+
+                  <View style={styles.otpSecureClosureDisplayCard}>
+                    <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1E293B' }}>{dictionary[lang].closeCodeLabel}</Text>
+                    <Text style={styles.otpClosureCodeString}>{serviceClosureOTP}</Text>
+                    <Text style={styles.otpClosureNoticeSubtext}>{dictionary[lang].closeCodeNote}</Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', marginTop: 12 }}>
+                    <TouchableOpacity style={styles.chatRoomTriggerBtn} onPress={() => setChatModalVisible(true)}>
+                      <Text style={{ color: '#1E293B', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].chatBtnText}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.completeRatingTriggerBtn} onPress={() => setRatingModalVisible(true)}>
+                      <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].completeRateBtn}</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               )}
-
-              <View style={{ paddingHorizontal: 16, marginTop: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: 15, fontWeight: '700' }}>{dictionary[lang].nearbyHeading}</Text>
-                <TouchableOpacity style={styles.logoutBtnSquare} onPress={handleSystemLogout}><Text style={styles.logoutBtnSquareText}>Logout 🛑</Text></TouchableOpacity>
-              </View>
+              
+              <TouchableOpacity style={styles.accountLogoutActionBtn} onPress={handleSystemLogout}>
+                <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>{dictionary[lang].logoutText}</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         )
       )}
 
+      {/* PARTNER WORKFLOW */}
       {authSelection === 'PARTNER' && (
         !partnerLoggedIn ? (
-          <View style={[styles.authWrapperCenter, { backgroundColor: '#059669' }]}>
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
             <View style={styles.authDisplayCardFrame}>
-              <Text style={[styles.authCardHeaderLabel, { color: '#059669' }]}>{isRegistering ? dictionary[lang].shopReg : dictionary[lang].partnerQuick}</Text>
-              {isRegistering ? (
-                <ScrollView contentContainerStyle={{ paddingBottom: 10 }}>
-                  <TouchableOpacity style={styles.avatarPickerBtn} onPress={pickPartnerImage}>
+              <Text style={styles.authCardHeaderLabel}>{isRegistering ? dictionary[lang].shopReg : dictionary[lang].partnerQuick}</Text>
+              
+              {isRegistering && (
+                <>
+                  <TouchableOpacity style={{ alignItems: 'center', marginBottom: 12 }} onPress={() => pickImage('PARTNER')}>
                     {partnerAvatar ? (
-                      <Image source={{ uri: partnerAvatar }} style={styles.partnerAvatarImage} />
+                      <Image source={{ uri: partnerAvatar }} style={{ width: 70, height: 70, borderRadius: 35 }} />
                     ) : (
-                      <Text style={{ color: '#64748B', textAlign: 'center', fontSize: 12 }}>📸 Upload Partner Profile Pic</Text>
+                      <View style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 10, color: '#64748B', textAlign: 'center' }}>{dictionary[lang].uploadPhotoText}</Text>
+                      </View>
                     )}
                   </TouchableOpacity>
 
-                  <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].shopNamePlace} value={shopName} onChangeText={setShopName} />
-                  <TextInput style={styles.appFormInputBox} placeholder="Owner Full Name" value={partnerName} onChangeText={setPartnerName} />
-                  <TextInput style={styles.appFormInputBox} placeholder="10 Digit Number" keyboardType="phone-pad" maxLength={10} value={partnerPhone} onChangeText={setPartnerPhone} />
-                  
-                  <Text style={styles.formLabelTextSmall}>🔧 Select Service Category Type:</Text>
-                  <View style={styles.pickerWrapperFrame}>
+                  <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>{dictionary[lang].ownerName}</Text>
+                  <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].ownerNamePlace} value={partnerName} onChangeText={setPartnerName} placeholderTextColor="#94A3B8" />
+
+                  <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>{dictionary[lang].garageNameLabel}</Text>
+                  <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].shopNamePlace} value={shopName} onChangeText={setShopName} placeholderTextColor="#94A3B8" />
+
+                  <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>{dictionary[lang].categoryTypeLabel}</Text>
+                  <View style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
                     <Picker selectedValue={serviceType} onValueChange={(itemValue) => setServiceType(itemValue)}>
-                      <Picker.Item label="Mechanic (General Repair) 🛠️" value="Mechanic" />
-                      <Picker.Item label="Puncture Shop (Tyre Expert) 🛞" value="Puncture" />
-                      <Picker.Item label="Fuel Provider (Emergency Delivery) ⛽" value="Fuel" />
+                      <Picker.Item label={dictionary[lang].generalMechanicLabel} value="Mechanic" />
+                      <Picker.Item label={dictionary[lang].punctureFixingLabel} value="Puncture" />
+                      <Picker.Item label={dictionary[lang].emergencyFuelLabel} value="Fuel" />
                     </Picker>
                   </View>
 
-                  <TouchableOpacity style={styles.gpsSyncActionBtnElement} onPress={fetchLiveCurrentShopAddress}>
-                    {fetchingAddress ? <ActivityIndicator size="small" color="#2563EB" /> : <Text style={styles.gpsSyncActionBtnTextString}>{dictionary[lang].fetchLocationBtn}</Text>}
+                  <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>{dictionary[lang].shopLocationLabel}</Text>
+                  <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].storeAddressPlace} value={shopAddress} onChangeText={setShopAddress} placeholderTextColor="#94A3B8" />
+                  <TouchableOpacity style={{ marginBottom: 12 }} onPress={fetchLiveCurrentShopAddress}>
+                    <Text style={{ color: '#2563EB', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].fetchLocationBtn}</Text>
                   </TouchableOpacity>
-                  <TextInput style={styles.appFormInputBox} placeholder="Full Store Address Block" value={shopAddress} onChangeText={setShopAddress} />
-                  
-                  <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#059669', marginTop: 10 }]} onPress={handlePartnerRegister}>
-                    <Text style={styles.authBtnTextString}>Commit Garage Registration 🛠️</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity onPress={() => setIsRegistering(false)} style={{ marginTop: 15, alignItems: 'center' }}><Text style={{ color: '#2563EB' }}>Already registered? Log In</Text></TouchableOpacity>
-                </ScrollView>
-              ) : (
-                <>
-                  <TextInput style={styles.appFormInputBox} placeholder="Registered Mobile Number" keyboardType="phone-pad" maxLength={10} value={partnerPhone} onChangeText={setPartnerPhone} />
-                  <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#059669' }]} onPress={handlePartnerLogin}>
-                    <Text style={styles.authBtnTextString}>Verify Station Identity 🔓</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setIsRegistering(true)} style={{ marginTop: 16, alignItems: 'center' }}><Text style={{ color: '#2563EB' }}>Create Store Account</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setAuthSelection('NONE')} style={{ marginTop: 15, alignItems: 'center' }}><Text style={{ color: '#64748B' }}>← Go Back</Text></TouchableOpacity>
                 </>
               )}
+
+              <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>Mobile Number:</Text>
+              <TextInput style={styles.appFormInputBox} placeholder={dictionary[lang].phonePlaceholder} keyboardType="phone-pad" value={partnerPhone} onChangeText={setPartnerPhone} placeholderTextColor="#94A3B8" />
+
+              <TouchableOpacity style={[styles.authSubmissionActionBtn, { backgroundColor: '#0F172A' }]} onPress={handlePartnerSubmitRegistration}>
+                <Text style={styles.authBtnTextString}>{dictionary[lang].verifyLaunchPartner}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ marginTop: 12 }} onPress={() => setIsRegistering(!isRegistering)}>
+                <Text style={{ textAlign: 'center', color: '#2563EB', fontWeight: 'bold', fontSize: 12 }}>
+                  {isRegistering ? dictionary[lang].alreadyRegUser : dictionary[lang].createPartnerAccountLink}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ marginTop: 16 }} onPress={() => setAuthSelection('NONE')}>
+                <Text style={{ textAlign: 'center', color: '#64748B', fontSize: 12 }}>{dictionary[lang].goBack}</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         ) : (
-          <View style={styles.partnerMainSuiteConsoleBodyContainer}>
-            <View style={styles.partnerIdentityMonitorCardFrame}>
-              <Text style={styles.partnerConsoleShopHeadingTextString}>{shopName || "Chauhan Garage"}</Text>
-              <Text style={{ fontSize: 13, color: '#64748B' }}>Welcome to Partner Hub Console Panel 🟢 Active</Text>
+          <ScrollView style={{ flex: 1, padding: 16 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderRadius: 12, marginBottom: 12 }}>
+              <View>
+                <Text style={{ fontWeight: 'bold', fontSize: 16 }}>{shopName || "Chauhan Workshop"}</Text>
+                <Text style={{ color: '#64748B', fontSize: 12 }}>{partnerName || "Mechanic Partner"}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ marginRight: 8, fontWeight: 'bold', fontSize: 12, color: isPartnerOnline ? '#16A34A' : '#DC2626' }}>
+                  {isPartnerOnline ? dictionary[lang].onlineStatus : dictionary[lang].offlineStatus}
+                </Text>
+                <Switch value={isPartnerOnline} onValueChange={setIsPartnerOnline} />
+              </View>
             </View>
 
-            {incomingSOS ? (
-              <View style={{ backgroundColor: '#FEF2F2', borderColor: '#EF4444', borderWidth: 1, padding: 16, borderRadius: 12, marginTop: 20 }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#DC2626' }}>🚨 Emergency Request Recieved!</Text>
-                <Text style={{ fontSize: 15, fontWeight: '700', marginTop: 6, color: '#000' }}>Driver: {incomingSOS.userName}</Text>
-                <Text style={{ fontSize: 13, color: '#475569' }}>Phone: {incomingSOS.userMobile}</Text>
-                <Text style={{ fontSize: 13, color: '#475569' }}>Issue: {incomingSOS.description}</Text>
-                <Text style={{ fontSize: 12, color: '#2563EB', fontWeight: 'bold', marginTop: 4 }}>Coordinates: {incomingSOS.latitude}, {incomingSOS.longitude}</Text>
-                
-                <View style={{ flexDirection: 'row', marginTop: 15 }}>
-                  <TouchableOpacity 
-                    style={{ flex: 1, height: 40, backgroundColor: '#059669', borderRadius: 6, justifyContent: 'center', alignItems: 'center', marginRight: 8 }}
-                    onPress={async () => {
-                      try {
-                        await axios.put(`${API_BASE_URL}/bookings/update-status/${incomingSOS.bookingId}`, {
-                          status: 'accepted',
-                          partnerName: partnerName || "Satish Kumar",
-                          shopName: shopName || "Chauhan Automobile"
-                        });
-                        setIncomingSOS(null);
-                        Alert.alert("Success", "Aapne request accept kar li hai. Driver ko notify kar diya hai!");
-                      } catch (e) {
-                        console.log("Error accepting booking route status update:", e);
-                      }
-                    }}
-                  >
-                    <Text style={{ color: '#FFF', fontWeight: 'bold' }}>✅ Accept Request</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    style={{ width: 80, height: 40, backgroundColor: '#EF4444', borderRadius: 6, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => setIncomingSOS(null)}
-                  >
-                    <Text style={{ color: '#FFF' }}>Reject</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}>
-                <ActivityIndicator size="small" color="#059669" />
-                <Text style={{ color: '#64748B', fontSize: 13, marginTop: 8 }}>Naye emergency requests ka wait ho raha hai...</Text>
+            {!isPartnerOnline && (
+              <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                <Text style={{ color: '#DC2626', textAlign: 'center', fontSize: 12 }}>{dictionary[lang].offlineNotice}</Text>
               </View>
             )}
 
-            <TouchableOpacity style={styles.consoleLogoutBottomActionBtn} onPress={handleSystemLogout}>
-              <Text style={{ color: '#EF4444', fontWeight: '700', textAlign: 'center' }}>Logout Console 🛑</Text>
+            {incomingSOS ? (
+              <View style={{ backgroundColor: '#FFF', padding: 16, borderRadius: 12, borderWidth: 2, borderColor: '#DC2626' }}>
+                <Text style={{ color: '#DC2626', fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>{dictionary[lang].alertReceivedTitle}</Text>
+                <Text style={{ fontSize: 14, marginBottom: 4 }}><Text style={{ fontWeight: 'bold' }}>{dictionary[lang].driverNameLabel}</Text> {incomingSOS.userName}</Text>
+                <Text style={{ fontSize: 14, marginBottom: 4 }}><Text style={{ fontWeight: 'bold' }}>{dictionary[lang].issueLogsLabel}</Text> {incomingSOS.description}</Text>
+                <Text style={{ fontSize: 14, marginBottom: 12 }}><Text style={{ fontWeight: 'bold' }}>{dictionary[lang].travelLabel}:</Text> {incomingSOS.calculatedDist} KM | <Text style={{ fontWeight: 'bold' }}>{dictionary[lang].bonusLabel}:</Text> ₹{incomingSOS.calculatedFare}</Text>
+
+                {jobStatus === 'assigned' && (
+                  <View style={{ backgroundColor: '#F8FAFC', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <TextInput 
+                      style={styles.appFormInputBox} 
+                      placeholder={dictionary[lang].arrivalOtpPlace} 
+                      keyboardType="numeric" 
+                      value={partnerArrivalOtpInput} 
+                      onChangeText={setPartnerArrivalOtpInput} 
+                    />
+                    <TouchableOpacity style={{ backgroundColor: '#2563EB', padding: 10, borderRadius: 8, alignItems: 'center' }} onPress={handleVerifyArrivalOtp}>
+                      <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].verifyArrivalBtn}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {jobStatus === 'inprogress' && (
+                  <View style={{ backgroundColor: '#F8FAFC', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 12 }}>{dictionary[lang].addPartHeading}</Text>
+                    <TextInput 
+                      style={styles.appFormInputBox} 
+                      placeholder={dictionary[lang].partNamePlace} 
+                      value={newPartName} 
+                      onChangeText={setNewPartName} 
+                    />
+                    <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                      <TouchableOpacity style={{ backgroundColor: '#64748B', padding: 8, borderRadius: 6, marginRight: 8 }} onPress={triggerCameraForPart}>
+                        <Text style={{ color: '#FFF', fontSize: 11 }}>{dictionary[lang].uploadPartImg}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={{ backgroundColor: '#16A34A', padding: 8, borderRadius: 6 }} onPress={handleMechanicAddItem}>
+                        <Text style={{ color: '#FFF', fontSize: 11 }}>{dictionary[lang].aiFetchBtn}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={{ fontWeight: 'bold', marginTop: 8, fontSize: 12 }}>{dictionary[lang].partnerOtpInputLabel}</Text>
+                    <TextInput 
+                      style={styles.appFormInputBox} 
+                      placeholder={dictionary[lang].partnerOtpPlaceholder} 
+                      keyboardType="numeric" 
+                      value={partnerClosureOtpInput} 
+                      onChangeText={setPartnerClosureOtpInput} 
+                    />
+                    <TouchableOpacity style={{ backgroundColor: '#16A34A', padding: 10, borderRadius: 8, alignItems: 'center' }} onPress={handleVerifyClosureOtpAndClose}>
+                      <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].partnerVerifyActionBtn}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <TouchableOpacity style={{ backgroundColor: '#EF4444', padding: 10, borderRadius: 8, alignItems: 'center' }} onPress={() => setIncomingSOS(null)}>
+                  <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].rejectClearText}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ backgroundColor: '#FFF', padding: 20, borderRadius: 12, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color="#2563EB" style={{ marginBottom: 8 }} />
+                <Text style={{ color: '#64748B', textAlign: 'center', fontSize: 12 }}>{dictionary[lang].waitingRequests}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={[styles.accountLogoutActionBtn, { marginTop: 20 }]} onPress={handleSystemLogout}>
+              <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>{dictionary[lang].logoutWorkstation}</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         )
       )}
 
-      {/* SOS Service Setup Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
-        <View style={styles.modalBackdropOverlay}>
-          <View style={styles.modalContentWhiteCard}>
-            <Text style={styles.modalHeadingTitleString}>Configure {activeService} Details</Text>
-            
-            <Text style={styles.formLabelTextSmall}>{dictionary[lang].vehicleType}</Text>
-            <View style={styles.modalPickerWrapper}>
-              <Picker selectedValue={selectedVehicle} onValueChange={(val) => setSelectedVehicle(val)}>
-                <Picker.Item label="Car / Hatchback 🚗" value="car" />
-                <Picker.Item label="Bike / Motorcycle 🏍️" value="bike" />
-                <Picker.Item label="Heavy Truck / Bus 🚛" value="truck" />
+      {/* SOS REQUEST CONFIGURATION MODAL */}
+      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlayCenter}>
+          <View style={styles.modalCardContainer}>
+            <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 12 }}>{dictionary[lang].configureReq}</Text>
+
+            <Text style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>{dictionary[lang].vehicleType}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              {['bike', 'car', 'auto', 'other'].map((type) => (
+                <TouchableOpacity 
+                  key={type} 
+                  style={{ padding: 8, borderRadius: 6, backgroundColor: selectedVehicle === type ? '#2563EB' : '#F1F5F9' }} 
+                  onPress={() => setSelectedVehicle(type)}
+                >
+                  <Text style={{ color: selectedVehicle === type ? '#FFF' : '#1E293B', fontSize: 11, fontWeight: 'bold' }}>
+                    {type === 'bike' ? dictionary[lang].bikeOption : type === 'car' ? dictionary[lang].carOption : type === 'auto' ? dictionary[lang].autoOption : dictionary[lang].otherCustomText}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>{dictionary[lang].problemType}</Text>
+            <View style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
+              <Picker selectedValue={selectedProblem} onValueChange={(itemValue) => setSelectedProblem(itemValue)}>
+                {dynamicProblemsList.map((item) => (
+                  <Picker.Item key={item.value} label={item.label} value={item.value} />
+                ))}
               </Picker>
             </View>
 
-            {activeService === 'Fuel' && (
-              <>
-                <Text style={styles.formLabelTextSmall}>{dictionary[lang].fuelCat}</Text>
-                <View style={styles.modalPickerWrapper}>
-                  <Picker selectedValue={fuelType} onValueChange={(val) => setFuelType(val)}>
-                    <Picker.Item label="Petrol" value="petrol" />
-                    <Picker.Item label="Diesel" value="diesel" />
-                  </Picker>
-                </View>
-                <Text style={styles.formLabelTextSmall}>{dictionary[lang].quantity}</Text>
-                <View style={styles.modalPickerWrapper}>
-                  <Picker selectedValue={fuelQuantity} onValueChange={(val) => setFuelQuantity(val)}>
-                    <Picker.Item label="2 Liters" value="2L" />
-                    <Picker.Item label="5 Liters" value="5L" />
-                    <Picker.Item label="10 Liters" value="10L" />
-                  </Picker>
-                </View>
-              </>
-            )}
-
-            {activeService === 'Puncture' && (
-              <>
-                <Text style={styles.formLabelTextSmall}>{dictionary[lang].tyreLoc}</Text>
-                <View style={styles.modalPickerWrapper}>
-                  <Picker selectedValue={tyreType} onValueChange={(val) => setTyreType(val)}>
-                    <Picker.Item label="Front Tyre" value="front" />
-                    <Picker.Item label="Rear Tyre" value="rear" />
-                  </Picker>
-                </View>
-                <Text style={styles.formLabelTextSmall}>{dictionary[lang].tyreKind}</Text>
-                <View style={styles.modalPickerWrapper}>
-                  <Picker selectedValue={tyreStructure} onValueChange={(val) => setTyreStructure(val)}>
-                    <Picker.Item label="Tubeless" value="tubeless" />
-                    <Picker.Item label="With Tube" value="tube" />
-                  </Picker>
-                </View>
-              </>
-            )}
-
-            {activeService === 'Mechanic' && (
-              <>
-                <Text style={styles.formLabelTextSmall}>{dictionary[lang].problemType}</Text>
-                <View style={styles.modalPickerWrapper}>
-                  <Picker selectedValue={selectedProblem} onValueChange={(val) => setSelectedProblem(val)}>
-                    <Picker.Item label="Engine Overheating 🌡️" value="Engine Overheat" />
-                    <Picker.Item label="Battery Dead / Kick Start Issue 🔋" value="Battery Dead" />
-                    <Picker.Item label="Brake Failure / Sound 🛑" value="Brake Issue" />
-                    <Picker.Item label="Gear Stuck / Clutch Slack ⚙️" value="Clutch Gear Issue" />
-                  </Picker>
-                </View>
-              </>
-            )}
-
-            <View style={styles.customSpeakInputRow}>
-              <TextInput style={styles.modalTextInputBox} placeholder={dictionary[lang].customMsgPlaceholder} value={customDescription} onChangeText={setCustomDescription} />
-              <TouchableOpacity style={styles.micCircleBtn} onPress={triggerVoiceDictation}>
-                <Text style={{ fontSize: 18 }}>{isListening ? "🎙️" : "🎤"}</Text>
+            <Text style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>{dictionary[lang].customDescTitle}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <TextInput 
+                style={[styles.appFormInputBox, { flex: 1, marginBottom: 0 }]} 
+                placeholder={dictionary[lang].customMsgPlaceholder} 
+                value={customDescription} 
+                onChangeText={setCustomDescription} 
+              />
+              <TouchableOpacity style={{ padding: 8, backgroundColor: isListening ? '#EF4444' : '#2563EB', borderRadius: 8, marginLeft: 8 }} onPress={triggerVoiceDictation}>
+                <Text style={{ color: '#FFF' }}>🎙️</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={{ flexDirection: 'row', marginTop: 20 }}>
-              <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleSOSBroadcast}>
-                <Text style={styles.modalSubmitBtnText}>{dictionary[lang].broadcastBtn}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setModalVisible(false)}>
-                <Text style={styles.modalCloseBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={{ color: '#64748B', fontSize: 11, marginBottom: 12 }}>{dictionary[lang].tipMessage}</Text>
+
+            <TouchableOpacity style={{ backgroundColor: '#DC2626', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 8 }} onPress={handleSOSBroadcast}>
+              <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{dictionary[lang].broadcastBtn}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={{ padding: 8, alignItems: 'center' }} onPress={() => setModalVisible(false)}>
+              <Text style={{ color: '#64748B' }}>{dictionary[lang].cancelText}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Live Chat Modal */}
-      <Modal visible={chatModalVisible} animationType="slide" transparent={true} onRequestClose={() => setChatModalVisible(false)}>
-        <View style={styles.modalBackdropOverlay}>
-          <View style={[styles.modalContentWhiteCard, { height: '80%' }]}>
-            <Text style={styles.modalHeadingTitleString}>Support Chat Window</Text>
+      {/* RATING MODAL */}
+      <Modal visible={ratingModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlayCenter}>
+          <View style={styles.modalCardContainer}>
+            <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 4 }}>{dictionary[lang].srvFeedbackTitle}</Text>
+            <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 12 }}>{dictionary[lang].srvFeedbackDesc}</Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 12 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity key={star} onPress={() => setSelectedStars(star)}>
+                  <Text style={{ fontSize: 28, marginHorizontal: 4 }}>{star <= selectedStars ? '⭐' : '☆'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput 
+              style={[styles.appFormInputBox, { height: 60 }]} 
+              placeholder={dictionary[lang].srvFeedbackPlace} 
+              multiline={true} 
+              value={reviewText} 
+              onChangeText={setReviewText} 
+            />
+
+            <TouchableOpacity style={{ backgroundColor: '#2563EB', padding: 10, borderRadius: 8, alignItems: 'center' }} onPress={submitDriverRating}>
+              <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{dictionary[lang].submitStarRating}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* CHAT MODAL */}
+      <Modal visible={chatModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlayCenter}>
+          <View style={[styles.modalCardContainer, { height: 400 }]}>
+            <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>{dictionary[lang].liveChatTitle}</Text>
             
-            <ScrollView style={{ flex: 1, marginVertical: 10 }}>
+            <ScrollView style={{ flex: 1, marginBottom: 8 }}>
               {chatMessages.map((msg) => (
-                <View key={msg.id} style={{ alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', backgroundColor: msg.sender === 'user' ? '#3B82F6' : '#F1F5F9', padding: 10, borderRadius: 10, marginVertical: 4, maxWidth: '80%' }}>
-                  <Text style={{ color: msg.sender === 'user' ? '#FFF' : '#000', fontSize: 14 }}>{msg.text}</Text>
-                  <Text style={{ color: msg.sender === 'user' ? '#E2E8F0' : '#64748B', fontSize: 10, textAlign: 'right', marginTop: 4 }}>{msg.timestamp}</Text>
+                <View key={msg.id} style={{ alignSelf: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? 'flex-end' : 'flex-start', backgroundColor: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? '#2563EB' : '#E2E8F0', padding: 8, borderRadius: 8, marginBottom: 4, maxWidth: '80%' }}>
+                  <Text style={{ color: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? '#FFF' : '#1E293B', fontSize: 12 }}>{msg.text}</Text>
+                  <Text style={{ color: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? '#E2E8F0' : '#64748B', fontSize: 9, textAlign: 'right' }}>{msg.timestamp}</Text>
                 </View>
               ))}
             </ScrollView>
 
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <TextInput style={[styles.appFormInputBox, { flex: 1, marginBottom: 0 }]} placeholder="Type your message..." value={typedMessage} onChangeText={setTypedMessage} />
-              <TouchableOpacity style={{ marginLeft: 10, backgroundColor: '#3B82F6', width: 45, height: 45, borderRadius: 23, justifyContent: 'center', alignItems: 'center' }} onPress={handleSendChatMessage}>
-                <Text style={{ color: '#FFF', fontSize: 16 }}>➡️</Text>
+              <TextInput 
+                style={[styles.appFormInputBox, { flex: 1, marginBottom: 0 }]} 
+                placeholder={dictionary[lang].chatInputPlace} 
+                value={typedMessage} 
+                onChangeText={setTypedMessage} 
+              />
+              <TouchableOpacity style={{ backgroundColor: '#2563EB', padding: 10, borderRadius: 8, marginLeft: 8 }} onPress={handleSendChatMessage}>
+                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{dictionary[lang].sendText}</Text>
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={[styles.modalCloseBtn, { marginTop: 15, width: '100%' }]} onPress={() => setChatModalVisible(false)}>
-              <Text style={styles.modalCloseBtnText}>Close Chat</Text>
+            <TouchableOpacity style={{ marginTop: 8, alignItems: 'center' }} onPress={() => setChatModalVisible(false)}>
+              <Text style={{ color: '#64748B', fontSize: 12 }}>{dictionary[lang].closeRoomText}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -807,75 +1022,44 @@ export default function HomeScreen() {
   );
 }
 
+// Global Export Declaration for Expo Router
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  appTopNavBar: { height: 75, backgroundColor: '#0F172A', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 15 },
+  appTopNavBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0F172A', paddingHorizontal: 16, paddingTop: 40, paddingBottom: 12 },
   appLogoMainBrand: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   topBarWelcomeSubtitle: { color: '#94A3B8', fontSize: 11 },
-  langSquareUnit: { backgroundColor: '#334155', width: 35, height: 35, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
-  
+  langSquareUnit: { backgroundColor: '#334155', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
   landingWrapperCenter: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
-  landingMainHeaderBrand: { fontSize: 24, fontWeight: 'bold', color: '#0F172A', textAlign: 'center', marginBottom: 5 },
-  landingSubheadingBrand: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 40 },
-  landingBigSelectionBtn: { flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
-  landingBigBtnIcon: { fontSize: 32 },
-  landingBigBtnTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-  landingBigBtnDesc: { color: '#E2E8F0', fontSize: 12, marginTop: 4, width: '90%' },
-
-  authWrapperCenter: { flex: 1, justifyContent: 'center', paddingHorizontal: 20, backgroundColor: '#1E293B' },
-  authDisplayCardFrame: { backgroundColor: '#FFF', borderRadius: 16, padding: 20, elevation: 5 },
-  authCardHeaderLabel: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginBottom: 15, textAlign: 'center' },
-  appFormInputBox: { height: 48, borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14, color: '#0F172A', backgroundColor: '#F8FAFC', marginBottom: 12 },
-  authSubmissionActionBtn: { padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  landingMainHeaderBrand: { fontSize: 22, fontWeight: 'bold', color: '#0F172A', textAlign: 'center', marginBottom: 4 },
+  landingSubheadingBrand: { fontSize: 13, color: '#64748B', textAlign: 'center', marginBottom: 24 },
+  landingBigSelectionBtn: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 12 },
+  landingBigBtnIcon: { fontSize: 28 },
+  landingBigBtnTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+  landingBigBtnDesc: { color: '#94A3B8', fontSize: 11 },
+  authWrapperCenter: { flex: 1, justifyContent: 'center', padding: 20 },
+  authDisplayCardFrame: { backgroundColor: '#FFF', padding: 20, borderRadius: 12, elevation: 2 },
+  authCardHeaderLabel: { fontSize: 18, fontWeight: 'bold', color: '#0F172A', marginBottom: 16, textAlign: 'center' },
+  appFormInputBox: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 12, backgroundColor: '#FFF' },
+  authSubmissionActionBtn: { padding: 12, borderRadius: 8, alignItems: 'center' },
   authBtnTextString: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-  
-  otpHelperNotice: { fontSize: 13, color: '#64748B', textAlign: 'center', marginBottom: 15 },
-  otpGridRowFlex: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  otpNumericalSquareCell: { width: 55, height: 55, borderColor: '#3B82F6', borderWidth: 2, borderRadius: 10, textAlign: 'center', fontSize: 20, fontWeight: 'bold', color: '#0F172A', backgroundColor: '#F0FDF4' },
-  
-  mapCanvasContainerFrame: { height: Dimensions.get('window').height * 0.45, width: '100%' },
-  userDashboardDockPanel: { padding: 16, backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, marginTop: -15, elevation: 4 },
-  dockMainTitleString: { fontSize: 16, fontWeight: 'bold', color: '#0F172A', marginBottom: 15 },
-  dockThreeButtonSplitRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  dockModuleButtonUnit: { flex: 1, backgroundColor: '#F1F5F9', borderRadius: 12, padding: 15, alignItems: 'center', marginHorizontal: 5 },
-  dockModuleIconGlyph: { fontSize: 24 },
-  dockModuleLabelText: { fontSize: 11, fontWeight: 'bold', color: '#334155', marginTop: 8 },
-
-  activeTrackingRadarPanelCard: { margin: 16, padding: 16, backgroundColor: '#FFF', borderRadius: 12, elevation: 4 },
-  radarPulseHeaderTitle: { color: '#10B981', fontWeight: 'bold', fontSize: 14 },
-  operatorNameHeadingString: { fontSize: 18, fontWeight: 'bold', marginTop: 6 },
-  radarCallActionBtn: { backgroundColor: '#10B981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, marginRight: 8 },
-  radarCallActionBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 12 },
-  radarChatActionBtn: { backgroundColor: '#3B82F6', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, marginRight: 8 },
-  radarChatActionBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 12 },
-  radarCancelActionBtn: { backgroundColor: '#EF4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6 },
-  radarCancelActionBtnText: { color: '#FFF', fontSize: 12 },
-
-  logoutBtnSquare: { backgroundColor: '#EF4444', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
-  logoutBtnSquareText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-
-  avatarPickerBtn: { alignSelf: 'center', width: 90, height: 90, borderRadius: 45, backgroundColor: '#F1F5F9', borderStyle: 'dashed', borderWidth: 2, borderColor: '#94A3B8', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
-  partnerAvatarImage: { width: 86, height: 86, borderRadius: 43 },
-  formLabelTextSmall: { fontSize: 12, fontWeight: 'bold', color: '#475569', marginBottom: 5, marginTop: 5 },
-  pickerWrapperFrame: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, backgroundColor: '#F8FAFC', marginBottom: 12, overflow: 'hidden' },
-  gpsSyncActionBtnElement: { padding: 10, backgroundColor: '#EFF6FF', borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 12 },
-  gpsSyncActionBtnTextString: { color: '#2563EB', fontWeight: 'bold', fontSize: 12 },
-
-  partnerMainSuiteConsoleBodyContainer: { flex: 1, padding: 16 },
-  partnerIdentityMonitorCardFrame: { padding: 16, backgroundColor: '#FFF', borderRadius: 12, borderLeftWidth: 5, borderLeftColor: '#059669', elevation: 2 },
-  partnerConsoleShopHeadingTextString: { fontSize: 18, fontWeight: 'bold' },
-  consoleLogoutBottomActionBtn: { position: 'absolute', bottom: 20, left: 16, right: 16, padding: 15, borderRadius: 10, borderColor: '#EF4444', borderWidth: 1, alignItems: 'center' },
-
-  modalBackdropOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContentWhiteCard: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
-  modalHeadingTitleString: { fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
-  modalPickerWrapper: { borderColor: '#E2E8F0', borderWidth: 1, borderRadius: 8, marginBottom: 10, overflow: 'hidden' },
-  customSpeakInputRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  modalTextInputBox: { flex: 1, borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 8, padding: 10, backgroundColor: '#F8FAFC' },
-  micCircleBtn: { marginLeft: 10, width: 45, height: 45, borderRadius: 22, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#BFDBFE' },
-  modalSubmitBtn: { flex: 1, backgroundColor: '#3B82F6', padding: 14, borderRadius: 8, alignItems: 'center', marginRight: 10 },
-  modalSubmitBtnText: { color: '#FFF', fontWeight: 'bold' },
-  modalCloseBtn: { padding: 14, borderRadius: 8, borderColor: '#CBD5E1', borderWidth: 1, width: 100, alignItems: 'center' },
-  modalCloseBtnText: { color: '#64748B' }
+  mapCanvasContainerFrame: { width: '100%', height: 250, backgroundColor: '#E2E8F0' },
+  servicesGridTitle: { fontSize: 14, fontWeight: 'bold', color: '#0F172A', marginBottom: 10 },
+  servicesGridFlexibleRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  serviceSquareUnitBtn: { flex: 1, backgroundColor: '#FFF', padding: 12, borderRadius: 10, alignItems: 'center', marginHorizontal: 4, elevation: 1 },
+  serviceUnitTextLabel: { fontSize: 11, fontWeight: 'bold', marginTop: 4, textAlign: 'center', color: '#1E293B' },
+  trackingDashboardContainer: { backgroundColor: '#FFF', margin: 16, padding: 12, borderRadius: 12, elevation: 2 },
+  trackingHeaderFlexRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  trackingPartnerNameMainTitle: { fontWeight: 'bold', fontSize: 15, color: '#0F172A' },
+  trackingPartnerShopSubtitle: { color: '#64748B', fontSize: 11 },
+  etaDisplayBadgeFrame: { backgroundColor: '#EFF6FF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  otpSecureClosureDisplayCard: { backgroundColor: '#FEF3C7', padding: 8, borderRadius: 6, marginTop: 8, alignItems: 'center' },
+  otpClosureCodeString: { fontSize: 18, fontWeight: 'bold', color: '#D97706', letterSpacing: 2 },
+  otpClosureNoticeSubtext: { fontSize: 9, color: '#92400E', textAlign: 'center' },
+  chatRoomTriggerBtn: { flex: 1, backgroundColor: '#F1F5F9', padding: 8, borderRadius: 6, alignItems: 'center', marginRight: 4 },
+  completeRatingTriggerBtn: { flex: 1, backgroundColor: '#16A34A', padding: 8, borderRadius: 6, alignItems: 'center', marginLeft: 4 },
+  accountLogoutActionBtn: { margin: 16, padding: 10, alignItems: 'center' },
+  modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  modalCardContainer: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 16, elevation: 5 },
 });
