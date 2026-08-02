@@ -21,8 +21,10 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.RECORD_AUDIO"
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO"
       ],
       "package": "com.neeleshchauhan5458steam.vehiclehelp"
     },
@@ -34,7 +36,19 @@
     "plugins": [
       "expo-router",
       "expo-localization",
-      "expo-speech-recognition"
+      "expo-speech-recognition",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow VehicleHelp to access your location for emergency assistance."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow VehicleHelp to access photos to upload shop photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
