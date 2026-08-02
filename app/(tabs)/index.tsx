@@ -1,5 +1,5 @@
 // ==========================================
-// 🚗 VEHICLEHELP - FULL CODE (DEFAULT: ENGLISH)
+// 🚗 VEHICLEHELP - FULL CODE (RENDER BACKEND UPDATED)
 // ==========================================
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,7 +23,8 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import io from 'socket.io-client';
 
-const API_BASE_URL = 'http://192.168.1.100:5000'; // Server IP
+// ✅ LIVE RENDER BACKEND URL
+const API_BASE_URL = 'https://vehiclehelp-backend.onrender.com';
 
 // LOCALIZATION DICTIONARY
 const dictionary = {
@@ -190,7 +191,6 @@ const dictionary = {
 };
 
 export default function App() {
-  // SET DEFAULT LANGUAGE TO ENGLISH ('en')
   const [lang, setLang] = useState<'hi' | 'en'>('en');
   const [authSelection, setAuthSelection] = useState<'NONE' | 'USER' | 'PARTNER'>('NONE');
   const [loading, setLoading] = useState<boolean>(false);
@@ -236,7 +236,6 @@ export default function App() {
 
   const socketRef = useRef<any>(null);
 
-  // Dynamic Problems Selection
   const getDynamicProblems = () => {
     if (activeService === 'Fuel') {
       return [
@@ -299,9 +298,10 @@ export default function App() {
     checkSession();
     getUserLocation();
 
+    // ✅ UPDATED SOCKET CONNECTION FOR RENDER (PREVENTS CRASHES)
     socketRef.current = io(API_BASE_URL, {
-      transports: ['websocket'],
-      reconnection: true
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
     });
 
     const handleNewSOS = (data: any) => {
@@ -318,6 +318,10 @@ export default function App() {
       setChatMessages((prev) => [...prev, data]);
     });
 
+    socketRef.current.on('connect_error', (err: any) => {
+      console.log('Socket Connection Warning:', err.message);
+    });
+
     const currentSocket = socketRef.current;
     return () => {
       if (currentSocket) {
@@ -327,7 +331,6 @@ export default function App() {
     };
   }, [checkSession, getUserLocation]);
 
-  // IMAGE PICKER FOR PARTNER REGISTRATION
   const handlePickPartnerPhoto = async () => {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -351,7 +354,6 @@ export default function App() {
     }
   };
 
-  // AUTOMATIC DATABASE CHECK & LOGIN LOGIC
   const handlePhoneChange = async (text: string) => {
     setUserPhone(text);
     if (text.length === 10) {

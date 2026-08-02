@@ -8,7 +8,11 @@
     "scheme": "vehiclehelpnew",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -17,6 +21,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ],
       "package": "com.neeleshchauhan5458steam.vehiclehelp"
@@ -40,6 +45,12 @@
         "projectId": "739c5b60-a007-4d9c-b6e0-e1cb072611a8"
       }
     },
-    "owner": "neeleshchauhan5458s-team"
+    "owner": "neeleshchauhan5458s-team",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/739c5b60-a007-4d9c-b6e0-e1cb072611a8"
+    }
   }
 }
