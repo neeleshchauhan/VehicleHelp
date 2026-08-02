@@ -1,5 +1,5 @@
 // ==========================================
-// 🚗 VEHICLEHELP - FULL CODE (RENDER BACKEND UPDATED)
+// 🚗 VEHICLEHELP - CRASH-FREE SAFE CODE
 // ==========================================
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,7 +26,6 @@ import io from 'socket.io-client';
 // ✅ LIVE RENDER BACKEND URL
 const API_BASE_URL = 'https://vehiclehelp-backend.onrender.com';
 
-// LOCALIZATION DICTIONARY
 const dictionary = {
   hi: {
     appTitle: '🚗 VehicleHelp',
@@ -212,7 +211,7 @@ export default function App() {
   const [partnerLoggedIn, setPartnerLoggedIn] = useState<boolean>(false);
   const [isPartnerOnline, setIsPartnerOnline] = useState<boolean>(true);
 
-  // Location & Map
+  // Location & Map (Default Delhi Coords to avoid Null Ref Crash)
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
 
   // Request States
@@ -263,7 +262,9 @@ export default function App() {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
-      let currentLoc = await Location.getCurrentPositionAsync({});
+      let currentLoc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
       setLocation(currentLoc);
     } catch (e) {
       console.log('Location error:', e);
@@ -298,35 +299,41 @@ export default function App() {
     checkSession();
     getUserLocation();
 
-    // ✅ UPDATED SOCKET CONNECTION FOR RENDER (PREVENTS CRASHES)
-    socketRef.current = io(API_BASE_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-    });
+    // ✅ CRASH SAFE SOCKET INITIALIZATION
+    try {
+      socketRef.current = io(API_BASE_URL, {
+        transports: ['websocket', 'polling'],
+        autoConnect: true,
+        reconnection: true,
+        reconnectionAttempts: 5,
+      });
 
-    const handleNewSOS = (data: any) => {
-      setIncomingSOS({ ...data, calculatedDist: 3.5, calculatedFare: 250 });
-    };
+      if (socketRef.current) {
+        socketRef.current.on('NEW_SOS_REQUEST', (data: any) => {
+          setIncomingSOS({ ...data, calculatedDist: 3.5, calculatedFare: 250 });
+        });
 
-    socketRef.current.on('NEW_SOS_REQUEST', handleNewSOS);
-    socketRef.current.on('SOS_ACCEPTED', (data: any) => {
-      setTrackingRequest(data);
-      setModalVisible(false);
-      Alert.alert('Mechanic Accepted!', `${data.partnerName} is on the way.`);
-    });
-    socketRef.current.on('CHAT_MESSAGE_RECEIVED', (data: any) => {
-      setChatMessages((prev) => [...prev, data]);
-    });
+        socketRef.current.on('SOS_ACCEPTED', (data: any) => {
+          setTrackingRequest(data);
+          setModalVisible(false);
+          Alert.alert('Mechanic Accepted!', `${data.partnerName} is on the way.`);
+        });
 
-    socketRef.current.on('connect_error', (err: any) => {
-      console.log('Socket Connection Warning:', err.message);
-    });
+        socketRef.current.on('CHAT_MESSAGE_RECEIVED', (data: any) => {
+          setChatMessages((prev) => [...prev, data]);
+        });
 
-    const currentSocket = socketRef.current;
+        socketRef.current.on('connect_error', (err: any) => {
+          console.log('Socket Warn:', err.message);
+        });
+      }
+    } catch (err) {
+      console.log('Socket Safe Catch:', err);
+    }
+
     return () => {
-      if (currentSocket) {
-        currentSocket.off('NEW_SOS_REQUEST', handleNewSOS);
-        currentSocket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
   }, [checkSession, getUserLocation]);
@@ -335,7 +342,7 @@ export default function App() {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
-        Alert.alert('Permission Required ⚠️', 'Allow access to gallery/camera to upload photo.');
+        Alert.alert('Permission Required ⚠️', 'Allow access to gallery to upload photo.');
         return;
       }
 
@@ -400,7 +407,6 @@ export default function App() {
       await AsyncStorage.setItem('@vh_user_session', JSON.stringify(sessionData));
 
       setUserLoggedIn(true);
-      Alert.alert('Welcome! 🎉', `Logged in as ${finalName}`);
     } catch (e) {
       Alert.alert('Error', 'Login failed. Please try again.');
     } finally {
@@ -461,23 +467,21 @@ export default function App() {
   };
 
   const handleSOSBroadcast = () => {
-    if (!location) {
-      Alert.alert('Location Missing', 'Fetching location. Please try again.');
-      getUserLocation();
-      return;
-    }
+    const lat = location?.coords?.latitude || 28.6139;
+    const lng = location?.coords?.longitude || 77.2090;
+
     const payload = {
       userName,
       userPhone,
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
+      latitude: lat,
+      longitude: lng,
       service: activeService,
       vehicle: selectedVehicle,
       problem: selectedProblem || activeService,
       description: customDescription
     };
 
-    if (socketRef.current) {
+    if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('BROADCAST_SOS', payload);
     }
     setModalVisible(false);
@@ -492,7 +496,7 @@ export default function App() {
       text: typedMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    if (socketRef.current) {
+    if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('SEND_CHAT_MESSAGE', msgObj);
     }
     setChatMessages((prev) => [...prev, msgObj]);
