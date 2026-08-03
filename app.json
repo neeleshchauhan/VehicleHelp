@@ -26,7 +26,12 @@
         "CAMERA",
         "RECORD_AUDIO"
       ],
-      "package": "com.neeleshchauhan5458steam.vehiclehelp"
+      "package": "com.neeleshchauhan5458steam.vehiclehelp",
+      "config": {
+        "googleMaps": {
+          "apiKey": "DUMMY_KEY_TO_PREVENT_APP_CRASH"
+        }
+      }
     },
     "web": {
       "bundler": "metro",
