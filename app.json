@@ -29,7 +29,7 @@
       "package": "com.neeleshchauhan5458steam.vehiclehelp",
       "config": {
         "googleMaps": {
-          "apiKey": "DUMMY_KEY_TO_PREVENT_APP_CRASH"
+          "apiKey": "AIzaSyAWZW7qmzkQFGb4xTMGhMcHb1ahmjGyKMo"
         }
       }
     },
