@@ -21,187 +21,6 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_SERVER_URL = 'https://your-socket-server-url.com'; // Replace with your actual backend URL
-
-const dictionary = {
-  en: {
-    appTitle: 'VehicleHelp 🚗',
-    welcomeSub: 'Emergency Roadside Assistance',
-    helloUser: 'Hello,',
-    helloPartner: 'Partner:',
-    landingSelectProfile: 'Select your profile to continue',
-    userRoleBtn: 'Driver',
-    userDesc: 'Request emergency mechanic, fuel, or puncture help',
-    partnerRoleBtn: 'Partner',
-    partnerDesc: 'Receive SOS alerts from nearby stranded drivers',
-    loginTitle: 'Driver Authentication',
-    phoneLabel: 'Mobile Number',
-    phonePlaceholder: 'Enter 10-digit number',
-    nameLabel: 'Full Name',
-    namePlaceholder: 'Enter your name',
-    continueBtn: 'Continue with OTP',
-    newUserNotice: 'New user! Please enter your name.',
-    existingUserNotice: 'Welcome back,',
-    otpSentNotice: 'OTP sent successfully to',
-    otpPlaceholder: 'Enter 6-digit OTP',
-    verifyOtpBtn: 'Verify & Login',
-    editPhone: 'Edit Phone Number',
-    goBack: 'Back to Selection',
-    yourLocation: 'Your Current Location',
-    selectServiceHeader: 'Select Roadside Service',
-    mechanicService: 'Mechanic',
-    punctureService: 'Puncture',
-    fuelService: 'Fuel Delivery',
-    etaText: 'Partner en route',
-    totalPayable: 'Estimated Charges',
-    closeCodeLabel: 'Service Closure Code',
-    closeCodeNote: 'Share this code with mechanic upon completion',
-    chatBtnText: 'Chat Room',
-    completeRateBtn: 'Complete & Rate',
-    logoutText: 'Logout Account',
-    shopReg: 'Partner Workshop Registration',
-    partnerQuick: 'Partner Quick Login',
-    addPhotoBtn: 'Add Photo',
-    uploadPhotoText: 'Upload Workshop / Profile Photo',
-    ownerName: 'Owner Name',
-    ownerNamePlace: 'Enter owner name',
-    garageNameLabel: 'Shop / Garage Name',
-    shopNamePlace: 'Enter garage name',
-    categoryTypeLabel: 'Service Category',
-    generalMechanicLabel: 'General Mechanic',
-    punctureFixingLabel: 'Puncture Expert',
-    emergencyFuelLabel: 'Emergency Fuel',
-    shopLocationLabel: 'Shop Address',
-    storeAddressPlace: 'Enter shop address or fetch live',
-    fetchLocationBtn: '📍 Fetch Current GPS Location',
-    verifyLaunchPartner: 'Verify & Launch Workstation',
-    alreadyRegUser: 'Already registered? Login here',
-    createPartnerAccountLink: 'Register new workshop account',
-    onlineStatus: 'ONLINE (Ready)',
-    offlineStatus: 'OFFLINE',
-    alertReceivedTitle: '🚨 NEW SOS REQUEST RECEIVED!',
-    driverNameLabel: 'Driver:',
-    serviceLabel: 'Service:',
-    issueLogsLabel: 'Issue:',
-    travelLabel: 'Distance',
-    bonusLabel: 'Est. Fare',
-    acceptSOSBtn: 'Accept & Navigate',
-    rejectClearText: 'Dismiss Request',
-    waitingRequests: 'Waiting for emergency broadcast signals...',
-    offlineNotice: 'You are currently offline. Toggle status to ON to receive requests.',
-    logoutWorkstation: 'Logout Workstation',
-    mechReqTitle: 'Request Mechanic Assistance',
-    puncReqTitle: 'Request Puncture Repair',
-    fuelReqTitle: 'Request Emergency Fuel',
-    vehicleType: 'Select Vehicle Type',
-    bikeOption: '🏍️ Bike',
-    carOption: '🚗 Car',
-    autoOption: '🛺 Auto',
-    otherCustomText: 'Other',
-    problemType: 'Select Problem Category',
-    customDescTitle: 'Custom Description (Optional)',
-    customMsgPlaceholder: 'Describe your issue briefly...',
-    broadcastBtn: 'broadcast SOS request 🚨',
-    cancelText: 'Cancel',
-    srvFeedbackTitle: 'Rate Your Experience ⭐',
-    srvFeedbackDesc: 'How was the service provided by the mechanic?',
-    srvFeedbackPlace: 'Write your feedback here...',
-    submitStarRating: 'Submit Feedback & Close',
-    liveChatTitle: 'Live Assistance Chat',
-    chatInputPlace: 'Type a message...',
-    sendText: 'Send',
-    closeRoomText: 'Close Chat',
-  },
-  hi: {
-    appTitle: 'VehicleHelp 🚗',
-    welcomeSub: 'आपातकालीन सड़क किनारे सहायता',
-    helloUser: 'नमस्ते,',
-    helloPartner: 'पार्टनर:',
-    landingSelectProfile: 'जारी रखने के लिए अपनी प्रोफ़ाइल चुनें',
-    userRoleBtn: 'वाहन मालिक / ड्राइवर',
-    userDesc: 'आपातकालीन मैकेनिक, ईंधन या पंक्चर सहायता का अनुरोध करें',
-    partnerRoleBtn: 'मैकेनिक / वर्कशॉप पार्टनर',
-    partnerDesc: 'फंसे हुए ड्राइवरों से एसओएस अलर्ट प्राप्त करें',
-    loginTitle: 'ड्राइवर प्रमाणीकरण',
-    phoneLabel: 'मोबाइल नंबर',
-    phonePlaceholder: '10 अंकों का नंबर दर्ज करें',
-    nameLabel: 'पूरा नाम',
-    namePlaceholder: 'अपना नाम दर्ज करें',
-    continueBtn: 'OTP के साथ आगे बढ़ें',
-    newUserNotice: 'नया उपयोगकर्ता! कृपया अपना नाम दर्ज करें।',
-    existingUserNotice: 'वापसी पर स्वागत है,',
-    otpSentNotice: 'इस पर सफलतापूर्वक OTP भेजा गया',
-    otpPlaceholder: '6 अंकों का OTP दर्ज करें',
-    verifyOtpBtn: 'सत्यापित करें और लॉगिन करें',
-    editPhone: 'फोन नंबर संपादित करें',
-    goBack: 'चयन पर वापस जाएं',
-    yourLocation: 'आपका वर्तमान स्थान',
-    selectServiceHeader: 'सड़क किनारे की सेवा चुनें',
-    mechanicService: 'मैकेनिक',
-    punctureService: 'पंक्चर',
-    fuelService: 'ईंधन वितरण',
-    etaText: 'पार्टनर रास्ते में है',
-    totalPayable: 'अनुमानित शुल्क',
-    closeCodeLabel: 'सेवा समापन कोड',
-    closeCodeNote: 'पूरा होने पर यह कोड मैकेनिक के साथ साझा करें',
-    chatBtnText: 'चैट रूम',
-    completeRateBtn: 'पूर्ण करें और रेट करें',
-    logoutText: 'खाता लॉग आउट करें',
-    shopReg: 'पार्टनर वर्कशॉप पंजीकरण',
-    partnerQuick: 'पार्टनर त्वरित लॉगिन',
-    addPhotoBtn: 'फोटो जोड़ें',
-    uploadPhotoText: 'वर्कशॉप / प्रोफ़ाइल फोटो अपलोड करें',
-    ownerName: 'मालिक का नाम',
-    ownerNamePlace: 'मालिक का नाम दर्ज करें',
-    garageNameLabel: 'दुकान / गैराज का नाम',
-    shopNamePlace: 'गैराज का नाम दर्ज करें',
-    categoryTypeLabel: 'सेवा श्रेणी',
-    generalMechanicLabel: 'सामान्य मैकेनिक',
-    punctureFixingLabel: 'पंक्चर विशेषज्ञ',
-    emergencyFuelLabel: 'आपातकालीन ईंधन',
-    shopLocationLabel: 'दुकान का पता',
-    storeAddressPlace: 'दुकान का पता दर्ज करें या प्राप्त करें',
-    fetchLocationBtn: '📍 वर्तमान जीपीएस स्थान प्राप्त करें',
-    verifyLaunchPartner: 'सत्यापित करें और वर्कस्टेशन लॉन्च करें',
-    alreadyRegUser: 'पंजीकृत हैं? यहां लॉगिन करें',
-    createPartnerAccountLink: 'नया वर्कशॉप खाता पंजीकृत करें',
-    onlineStatus: 'ऑनलाइन (तैयार)',
-    offlineStatus: 'ऑफ़लाइन',
-    alertReceivedTitle: '🚨 नया एसओएस अनुरोध प्राप्त हुआ!',
-    driverNameLabel: 'ड्राइवर:',
-    serviceLabel: 'सेवा:',
-    issueLogsLabel: 'समस्या:',
-    travelLabel: 'दूरी',
-    bonusLabel: 'अनुमानित किराया',
-    acceptSOSBtn: 'स्वीकार करें और नेविगेट करें',
-    rejectClearText: 'अनुरोध अस्वीकार करें',
-    waitingRequests: 'आपातकालीन प्रसारण संकेतों की प्रतीक्षा की जा रही है...',
-    offlineNotice: 'आप वर्तमान में ऑफ़लाइन हैं। अनुरोध प्राप्त करने के लिए स्थिति चालू करें।',
-    logoutWorkstation: 'वर्कस्टेशन लॉग आउट करें',
-    mechReqTitle: 'मैकेनिक सहायता का अनुरोध करें',
-    puncReqTitle: 'पंक्चर मरम्मत का अनुरोध करें',
-    fuelReqTitle: 'आपातकालीन ईंधन का अनुरोध करें',
-    vehicleType: 'वाहन का प्रकार चुनें',
-    bikeOption: 'बाइक / स्कूटर',
-    carOption: 'कार',
-    autoOption: 'ऑटो रिक्शा',
-    otherCustomText: 'अन्य',
-    problemType: 'समस्या श्रेणी चुनें',
-    customDescTitle: 'कस्टम विवरण (वैकल्पिक)',
-    customMsgPlaceholder: 'अपनी समस्या का संक्षेप में वर्णन करें...',
-    broadcastBtn: 'एसओएस अनुरोध प्रसारित करें 🚨',
-    cancelText: 'रद्द करें',
-    srvFeedbackTitle: 'अपने अनुभव को रेट करें ⭐',
-    srvFeedbackDesc: 'मैकेनिक द्वारा प्रदान की गई सेवा कैसी थी?',
-    srvFeedbackPlace: 'अपनी प्रतिक्रिया यहाँ लिखें...',
-    submitStarRating: 'प्रतिक्रिया सबमिट करें और बंद करें',
-    liveChatTitle: 'लाइव सहायता चैट',
-    chatInputPlace: 'संदेश टाइप करें...',
-    sendText: 'भेजें',
-    closeRoomText: 'चैट बंद करें',
-  },
-};
-
 export default function App() {
   const [lang, setLang] = useState<'en' | 'hi'>('en');
   const [authSelection, setAuthSelection] = useState<'NONE' | 'USER' | 'PARTNER'>('NONE');
@@ -209,120 +28,247 @@ export default function App() {
   // User States
   const [userPhone, setUserPhone] = useState('');
   const [userName, setUserName] = useState('');
-  const [userLoggedIn, setUserLoggedIn] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
-  
-  // Partner States
+  const [userLoggedIn, setUserLoggedIn] = useState(false);
+
+  // Partner/Mechanic States
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerName, setPartnerName] = useState('');
   const [shopName, setShopName] = useState('');
-  const [shopAddress, setShopAddress] = useState('');
   const [serviceType, setServiceType] = useState('Mechanic');
+  const [shopAddress, setShopAddress] = useState('');
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
-  const [partnerLoggedIn, setPartnerLoggedIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [isPartnerOnline, setIsPartnerOnline] = useState(false);
-  
-  // OTP & General UI States
+  const [partnerLoggedIn, setPartnerLoggedIn] = useState(false);
+  const [isPartnerOnline, setIsPartnerOnline] = useState(true);
+
+  // Shared Auth & Service States
   const [otpSent, setOtpSent] = useState(false);
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [inputOtp, setInputOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  
-  // Service & SOS Modals
+
+  // Modals & Active Service States
   const [modalVisible, setModalVisible] = useState(false);
-  const [activeService, setActiveService] = useState('Mechanic');
+  const [activeService, setActiveService] = useState<'Mechanic' | 'Puncture' | 'Fuel'>('Mechanic');
   const [selectedVehicle, setSelectedVehicle] = useState('bike');
   const [selectedProblem, setSelectedProblem] = useState('');
   const [customDescription, setCustomDescription] = useState('');
-  
-  // Live Tracking & Requests
+
+  // Tracking & Live Interactions
   const [incomingSOS, setIncomingSOS] = useState<any>(null);
   const [trackingRequest, setTrackingRequest] = useState<any>(null);
-  const [totalBillAmount, setTotalBillAmount] = useState('450');
-  const [serviceClosureOTP] = useState('8899');
+  const [totalBillAmount, setTotalBillAmount] = useState('350');
+  const [serviceClosureOTP] = useState('4892');
   
-  // Chat & Rating
+  // Chat & Rating Modals
   const [chatModalVisible, setChatModalVisible] = useState(false);
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [typedMessage, setTypedMessage] = useState('');
-  const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [userFeedbackText, setUserFeedbackText] = useState('');
 
   const socketRef = useRef<Socket | null>(null);
 
-  useEffect(() => {
-    checkSession();
-    getUserLocation();
-  }, []);
-
-  const checkSession = async () => {
-    try {
-      const userSession = await AsyncStorage.getItem('@vh_user_session');
-      if (userSession) {
-        const parsed = JSON.parse(userSession);
-        setUserPhone(parsed.phone);
-        setUserName(parsed.name);
-        setUserLoggedIn(true);
-        setAuthSelection('USER');
-      }
-
-      const partnerSession = await AsyncStorage.getItem('@vh_partner_session');
-      if (partnerSession) {
-        const parsed = JSON.parse(partnerSession);
-        setPartnerPhone(parsed.phone || '');
-        setPartnerName(parsed.name || '');
-        setShopName(parsed.shopName || '');
-        setServiceType(parsed.serviceType || 'Mechanic');
-        setShopAddress(parsed.address || '');
-        setPartnerAvatar(parsed.avatar || null);
-        setPartnerLoggedIn(true);
-        setAuthSelection('PARTNER');
-      }
-    } catch (e) {
-      console.log('Session Load Error', e);
+  // Dictionary for Bilingual Support (English & Hindi)
+  const dictionary = {
+    en: {
+      appTitle: 'VehicleHelp 🚗',
+      welcomeSub: 'Instant Roadside Assistance',
+      landingSelectProfile: 'Select your role to continue',
+      userRoleBtn: 'Driver ',
+      userDesc: 'Get mechanic, puncture or fuel help',
+      partnerRoleBtn: 'Partners',
+      partnerDesc: 'Accept breakdown requests & earn',
+      loginTitle: 'Driver Authentication',
+      phoneLabel: 'Mobile Number',
+      phonePlaceholder: 'Enter 10-digit number',
+      nameLabel: 'Full Name',
+      namePlaceholder: 'Enter your name',
+      newUserNotice: 'New user detected! Please register.',
+      existingUserNotice: 'Welcome back,',
+      continueBtn: 'Request OTP',
+      otpSentNotice: 'OTP sent successfully to',
+      otpPlaceholder: 'Enter 6-digit OTP',
+      verifyOtpBtn: 'Verify & Login',
+      editPhone: 'Edit Phone Number',
+      goBack: '← Back to Role Selection',
+      helloUser: 'Hello Driver,',
+      helloPartner: 'Hello Partner,',
+      yourLocation: 'Your Current Location',
+      selectServiceHeader: 'Select Breakdown Service',
+      mechanicService: 'Mechanic',
+      punctureService: 'Puncture',
+      fuelService: 'Fuel Delivery',
+      etaText: 'ETA: ~12 mins',
+      totalPayable: 'Estimated Service Charge',
+      closeCodeLabel: 'Secure Closure Code',
+      closeCodeNote: 'Share this code with mechanic only after work is complete.',
+      chatBtnText: '💬 Live Chat',
+      completeRateBtn: '⭐ Complete & Rate',
+      logoutText: 'Logout Account',
+      logoutWorkstation: 'Logout Workstation',
+      shopReg: 'Workshop Registration',
+      partnerQuick: 'Partner Quick Login',
+      addPhotoBtn: 'Add Photo',
+      uploadPhotoText: 'Upload Workshop / Profile Image',
+      ownerName: 'Owner Name',
+      ownerNamePlace: 'Enter owner full name',
+      garageNameLabel: 'Workshop / Garage Name',
+      shopNamePlace: 'Enter garage title',
+      categoryTypeLabel: 'Primary Service Specialization',
+      generalMechanicLabel: 'General Mechanic',
+      punctureFixingLabel: 'Puncture & Tyres',
+      emergencyFuelLabel: 'Emergency Fuel',
+      shopLocationLabel: 'Workshop Address',
+      storeAddressPlace: 'Enter complete address or fetch live',
+      fetchLocationBtn: '📍 Fetch Current GPS Location',
+      verifyLaunchPartner: 'Send Verification OTP',
+      alreadyRegUser: 'Already registered? Login here',
+      createPartnerAccountLink: 'New Partner? Register Workshop',
+      onlineStatus: 'ONLINE (Ready)',
+      offlineStatus: 'OFFLINE (Busy)',
+      alertReceivedTitle: '🚨 Emergency Breakdown Request!',
+      driverNameLabel: 'Driver:',
+      serviceLabel: 'Service:',
+      issueLogsLabel: 'Issue:',
+      travelLabel: 'Distance',
+      bonusLabel: 'Est. Fare',
+      acceptSOSBtn: '✅ Accept Request & Navigate',
+      rejectClearText: '❌ Reject / Dismiss',
+      waitingRequests: 'Waiting for nearby vehicle breakdown alerts...',
+      offlineNotice: 'You are currently offline. Go online to receive requests.',
+      mechReqTitle: '🛠️ Mechanic Assistance Request',
+      puncReqTitle: '🛞 Puncture Repair Request',
+      fuelReqTitle: '⛽ Emergency Fuel Request',
+      vehicleType: 'Select Vehicle Type',
+      bikeOption: ' 🏍️Bike ',
+      carOption: ' 🚗Car',
+      autoOption: '🛺Auto',
+      otherCustomText: 'Other',
+      problemType: 'Select Specific Problem',
+      customDescTitle: 'Additional Problem Description (Optional)',
+      customMsgPlaceholder: 'E.g., Chain broke down near highway...',
+      broadcastBtn: '🚨 Broadcast SOS Request Now',
+      cancelText: 'Cancel',
+      srvFeedbackTitle: 'Service Feedback & Rating',
+      srvFeedbackDesc: 'How was your experience with the mechanic partner?',
+      srvFeedbackPlace: 'Write your feedback here...',
+      submitStarRating: 'Submit Feedback & Finish',
+      liveChatTitle: 'Live Assistance Chat',
+      chatInputPlace: 'Type a message...',
+      sendText: 'Send',
+      closeRoomText: 'Close Chat'
+    },
+    hi: {
+      appTitle: 'VehicleHelp 🚗',
+      welcomeSub: 'तत्काल सड़क किनारा सहायता',
+      landingSelectProfile: 'जारी रखने के लिए अपनी भूमिका चुनें',
+      userRoleBtn: 'ड्राइवर / वाहन मालिक',
+      userDesc: 'मैकेनिक, पंचर या ईंधन सहायता प्राप्त करें',
+      partnerRoleBtn: 'मैकेनिक / वर्कशॉप पार्टनर',
+      partnerDesc: 'ब्रेकडाउन अनुरोध स्वीकार करें और कमाएं',
+      loginTitle: 'ड्राइवर प्रमाणीकरण',
+      phoneLabel: 'मोबाइल नंबर',
+      phonePlaceholder: '10 अंकों का नंबर दर्ज करें',
+      nameLabel: 'पूरा नाम',
+      namePlaceholder: 'अपना नाम दर्ज करें',
+      newUserNotice: 'नया उपयोगकर्ता! कृपया पंजीकरण करें।',
+      existingUserNotice: 'वापसी पर स्वागत है,',
+      continueBtn: 'OTP अनुरोध करें',
+      otpSentNotice: 'सफलतापूर्वक OTP भेजा गया',
+      otpPlaceholder: '6 अंकों का OTP दर्ज करें',
+      verifyOtpBtn: 'सत्यापित करें और लॉगिन करें',
+      editPhone: 'फ़ोन नंबर बदलें',
+      goBack: '← भूमिका चयन पर वापस जाएं',
+      helloUser: 'नमस्ते ड्राइवर,',
+      helloPartner: 'नमस्ते पार्टनर,',
+      yourLocation: 'आपकी वर्तमान स्थिति',
+      selectServiceHeader: 'ब्रेकडाउन सेवा चुनें',
+      mechanicService: 'मैकेनिक',
+      punctureService: 'पंचर',
+      fuelService: 'ईंधन डिलीवरी',
+      etaText: 'ETA: ~12 मिनिट',
+      totalPayable: 'अनुमानित सेवा शुल्क',
+      closeCodeLabel: 'सुरक्षित समापन कोड',
+      closeCodeNote: 'काम पूरा होने के बाद ही इस कोड को मैकेनिक के साथ साझा करें।',
+      chatBtnText: '💬 लाइव चैट',
+      completeRateBtn: '⭐ पूर्ण और रेट करें',
+      logoutText: 'खाता लॉगआउट करें',
+      logoutWorkstation: 'वर्कस्टेशन लॉगआउट करें',
+      shopReg: 'वर्कशॉप पंजीकरण',
+      partnerQuick: 'पार्टनर त्वरित लॉगिन',
+      addPhotoBtn: 'फोटो जोड़ें',
+      uploadPhotoText: 'वर्कशॉप / प्रोफाइल इमेज अपलोड करें',
+      ownerName: 'मालिक का नाम',
+      ownerNamePlace: 'मालिक का पूरा नाम दर्ज करें',
+      garageNameLabel: 'वर्कशॉप / गैराज का नाम',
+      shopNamePlace: 'गैराज का शीर्षक दर्ज करें',
+      categoryTypeLabel: 'प्राथमिक सेवा विशेषज्ञता',
+      generalMechanicLabel: 'सामान्य मैकेनिक',
+      punctureFixingLabel: 'पंचर और टायर',
+      emergencyFuelLabel: 'आपातकालीन ईंधन',
+      shopLocationLabel: 'वर्कशॉप का पता',
+      storeAddressPlace: 'पूरा पता दर्ज करें या GPS से प्राप्त करें',
+      fetchLocationBtn: '📍 वर्तमान GPS लोकेशन प्राप्त करें',
+      verifyLaunchPartner: 'सत्यापन OTP भेजें',
+      alreadyRegUser: 'पहले से पंजीकृत हैं? यहाँ लॉगिन करें',
+      createPartnerAccountLink: 'नया पार्टनर? वर्कशॉप रजिस्टर करें',
+      onlineStatus: 'ऑनलाइन (तैयार)',
+      offlineStatus: 'ऑफ़लाइन (व्यस्त)',
+      alertReceivedTitle: '🚨 आपातकालीन ब्रेकडाउन अनुरोध!',
+      driverNameLabel: 'ड्राइवर:',
+      serviceLabel: 'सेवा:',
+      issueLogsLabel: 'समस्या:',
+      travelLabel: 'दूरी',
+      bonusLabel: 'अनुमानित किराया',
+      acceptSOSBtn: '✅ अनुरोध स्वीकार करें और नेविगेट करें',
+      rejectClearText: '❌ अस्वीकार / हटाएं',
+      waitingRequests: 'आसपास के वाहन ब्रेकडाउन अलर्ट की प्रतीक्षा की जा रही है...',
+      offlineNotice: 'आप वर्तमान में ऑफ़लाइन हैं। अनुरोध प्राप्त करने के लिए ऑनलाइन आएं।',
+      mechReqTitle: '🛠️ मैकेनिक सहायता अनुरोध',
+      puncReqTitle: '🛞 पंचर मरम्मत अनुरोध',
+      fuelReqTitle: '⛽ आपातकालीन ईंधन अनुरोध',
+      vehicleType: 'वाहन का प्रकार चुनें',
+      bikeOption: 'बाइक्स / स्कूटर',
+      carOption: 'कार',
+      autoOption: 'ऑटो रिक्शा',
+      otherCustomText: 'अन्य',
+      problemType: 'विशिष्ट समस्या चुनें',
+      customDescTitle: 'अतिरिक्त समस्या विवरण (वैकल्पिक)',
+      customMsgPlaceholder: 'जैसे, हाईवे के पास चेन टूट गई है...',
+      broadcastBtn: '🚨 SOS अनुरोध अभी प्रसारित करें',
+      cancelText: 'रद्द करें',
+      srvFeedbackTitle: 'सेवा प्रतिक्रिया और रेटिंग',
+      srvFeedbackDesc: 'मैकेनिक पार्टनर के साथ आपका अनुभव कैसा रहा?',
+      srvFeedbackPlace: 'अपनी प्रतिक्रिया यहाँ लिखें...',
+      submitStarRating: 'प्रतिक्रिया जमा करें और समाप्त करें',
+      liveChatTitle: 'लाइव सहायता चैट',
+      chatInputPlace: 'संदेश टाइप करें...',
+      sendText: 'भेजें',
+      closeRoomText: 'चैट बंद करें'
     }
   };
 
-  const getUserLocation = async () => {
-    try {
+  useEffect(() => {
+    (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to find nearby mechanics.');
-        return;
+      if (status === 'granted') {
+        let loc = await Location.getCurrentPositionAsync({});
+        setLocation(loc);
       }
-      let currentLocation = await Location.getCurrentPositionAsync({});
-      setLocation(currentLocation);
-    } catch (e) {
-      console.log('Location Fetch Error', e);
-    }
-  };
+    })();
 
-  useEffect(() => {
-    socketRef.current = io(SOCKET_SERVER_URL, {
-      autoConnect: true,
-      transports: ['websocket'],
-    });
+    // Initialize Socket connection
+    socketRef.current = io('https://vehiclehelp-backend.onrender.com');
 
     socketRef.current.on('connect', () => {
-      console.log('Socket Connected:', socketRef.current?.id);
+      console.log('Connected to VehicleHelp backend server socket ID:', socketRef.current?.id);
     });
 
-    socketRef.current.on('RECEIVE_SOS', (data) => {
-      if (authSelection === 'PARTNER' && isPartnerOnline) {
-        setIncomingSOS({
-          ...data,
-          calculatedDist: '2.4',
-          calculatedFare: '350',
-        });
-      }
-    });
-
-    socketRef.current.on('SOS_ACCEPTED_BY_PARTNER', (data) => {
-      if (authSelection === 'USER') {
-        setTrackingRequest(data);
-      }
+    socketRef.current.on('INCOMING_SOS_ALERT', (data) => {
+      setIncomingSOS(data);
     });
 
     socketRef.current.on('RECEIVE_CHAT_MESSAGE', (msg) => {
@@ -332,76 +278,15 @@ export default function App() {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [authSelection, isPartnerOnline]);
-
-  useEffect(() => {
-    if (partnerLoggedIn && isPartnerOnline && socketRef.current) {
-      socketRef.current.emit('REGISTER_PARTNER', {
-        phone: partnerPhone,
-        shopName,
-        partnerName,
-        serviceType,
-        latitude: location?.coords?.latitude || 28.6139,
-        longitude: location?.coords?.longitude || 77.2090,
-      });
-    }
-  }, [partnerLoggedIn, isPartnerOnline, location, partnerPhone, shopName, partnerName, serviceType]);
-
-  const getDynamicProblems = () => {
-    if (activeService === 'Puncture') {
-      return [
-        { label: 'Front Tyre Puncture', value: 'front_puncture' },
-        { label: 'Rear Tyre Puncture', value: 'rear_puncture' },
-        { label: 'Tubeless Valve Leak', value: 'valve_leak' },
-      ];
-    } else if (activeService === 'Fuel') {
-      return [
-        { label: 'Petrol Out (1-5 Liter)', value: 'petrol_1l' },
-        { label: 'Diesel Out (5-10 Liters)', value: 'diesel_2l' },
-      ];
-    } else {
-      return [
-        { label: 'Engine Won’t Start', value: 'engine_start' },
-        { label: 'Battery Dead / Jumpstart', value: 'battery_dead' },
-        { label: 'Chain Broken / Slip', value: 'chain_issue' },
-        { label: 'Brake Failure', value: 'brake_issue' },
-      ];
-    }
-  };
-
-  const handlePickPartnerPhoto = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert('Permission Required ⚠️', 'Allow access to gallery to upload photo.');
-        return;
-      }
-
-      let result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-      });
-
-      if (!result.canceled && result.assets && result.assets[0].uri) {
-        setPartnerAvatar(result.assets[0].uri);
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Unable to pick image');
-    }
-  };
+  }, []);
 
   const handlePhoneChange = async (text: string) => {
     const cleaned = text.replace(/[^0-9]/g, '');
     setUserPhone(cleaned);
-    
     if (cleaned.length === 10) {
-      setLoading(true);
       try {
         const dbUsersRaw = await AsyncStorage.getItem('@vh_registered_users_db');
         const dbUsers = dbUsersRaw ? JSON.parse(dbUsersRaw) : {};
-
         if (dbUsers[cleaned]) {
           setIsNewUser(false);
           setUserName(dbUsers[cleaned].name);
@@ -410,9 +295,7 @@ export default function App() {
           setUserName('');
         }
       } catch (e) {
-        console.log('DB Search Error', e);
-      } finally {
-        setLoading(false);
+        setIsNewUser(true);
       }
     }
   };
@@ -420,6 +303,41 @@ export default function App() {
   const handlePartnerPhoneChange = (text: string) => {
     const cleaned = text.replace(/[^0-9]/g, '');
     setPartnerPhone(cleaned);
+  };
+
+  const handlePickPartnerPhoto = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0].uri) {
+      setPartnerAvatar(result.assets[0].uri);
+    }
+  };
+
+  const getDynamicProblems = () => {
+    if (activeService === 'Puncture') {
+      return [
+        { label: lang === 'hi' ? 'सिंगल पंचर' : 'Single Puncture', value: 'Single Puncture' },
+        { label: lang === 'hi' ? 'ट्यूब बदलना है' : 'Tube Replacement', value: 'Tube Replacement' },
+        { label: lang === 'hi' ? 'ट्यूबलेस टायर एयर लीक' : 'Tubeless Air Leak', value: 'Tubeless Air Leak' }
+      ];
+    } else if (activeService === 'Fuel') {
+      return [
+        { label: lang === 'hi' ? 'पेट्रोल (1 लीटर)' : 'Petrol (1 Litre)', value: 'Petrol 1L' },
+        { label: lang === 'hi' ? 'डीजल (1 लीटर)' : 'Diesel (1 Litre)', value: 'Diesel 1L' }
+      ];
+    } else {
+      return [
+        { label: lang === 'hi' ? 'इंजन स्टार्ट नहीं हो रहा' : 'Engine Won\'t Start', value: 'Engine Start Issue' },
+        { label: lang === 'hi' ? 'चेन / बेल्ट टूट गई' : 'Chain / Belt Broken', value: 'Chain Broken' },
+        { label: lang === 'hi' ? 'बैटरी डिस्चार्ज समस्या' : 'Battery Dead', value: 'Battery Dead' },
+        { label: lang === 'hi' ? 'अन्य यांत्रिक खराबी' : 'Other Mechanical Issue', value: 'General Breakdown' }
+      ];
+    }
   };
 
   const handleRequestOTP = () => {
@@ -711,7 +629,7 @@ export default function App() {
             </View>
           </ScrollView>
         ) : (
-          <View style={{ flex: 1 }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
             <View style={styles.mapCanvasContainerFrame}>
               <MapView
                 style={{ flex: 1 }}
@@ -742,64 +660,62 @@ export default function App() {
               </MapView>
             </View>
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
-              <View style={{ padding: 16 }}>
-                <Text style={styles.servicesGridTitle}>{dictionary[lang].selectServiceHeader}</Text>
-                <View style={styles.servicesGridFlexibleRow}>
-                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Mechanic'); setModalVisible(true); }}>
-                    <Text style={{ fontSize: 28 }}>🛠️</Text>
-                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].mechanicService}</Text>
+            <View style={{ padding: 16 }}>
+              <Text style={styles.servicesGridTitle}>{dictionary[lang].selectServiceHeader}</Text>
+              <View style={styles.servicesGridFlexibleRow}>
+                <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Mechanic'); setModalVisible(true); }}>
+                  <Text style={{ fontSize: 28 }}>🛠️</Text>
+                  <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].mechanicService}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Puncture'); setModalVisible(true); }}>
+                  <Text style={{ fontSize: 28 }}>🛞</Text>
+                  <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].punctureService}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Fuel'); setModalVisible(true); }}>
+                  <Text style={{ fontSize: 28 }}>⛽</Text>
+                  <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].fuelService}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {trackingRequest && (
+              <View style={styles.trackingDashboardContainer}>
+                <View style={styles.trackingHeaderFlexRow}>
+                  <View>
+                    <Text style={styles.trackingPartnerNameMainTitle}>{trackingRequest.partnerName}</Text>
+                    <Text style={styles.trackingPartnerShopSubtitle}>{trackingRequest.shopName} • 4.8 ⭐</Text>
+                  </View>
+                  <View style={styles.etaDisplayBadgeFrame}>
+                    <Text style={{ color: '#2563EB', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].etaText}</Text>
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 6, marginTop: 6 }}>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold' }}>{dictionary[lang].totalPayable}</Text>
+                  <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#DC2626' }}>₹{totalBillAmount}</Text>
+                </View>
+
+                <View style={styles.otpSecureClosureDisplayCard}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1E293B' }}>{dictionary[lang].closeCodeLabel}</Text>
+                  <Text style={styles.otpClosureCodeString}>{serviceClosureOTP}</Text>
+                  <Text style={styles.otpClosureNoticeSubtext}>{dictionary[lang].closeCodeNote}</Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', marginTop: 12 }}>
+                  <TouchableOpacity style={styles.chatRoomTriggerBtn} onPress={() => setChatModalVisible(true)}>
+                    <Text style={{ color: '#1E293B', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].chatBtnText}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Puncture'); setModalVisible(true); }}>
-                    <Text style={{ fontSize: 28 }}>🛞</Text>
-                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].punctureService}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.serviceSquareUnitBtn} onPress={() => { setActiveService('Fuel'); setModalVisible(true); }}>
-                    <Text style={{ fontSize: 28 }}>⛽</Text>
-                    <Text style={styles.serviceUnitTextLabel}>{dictionary[lang].fuelService}</Text>
+                  <TouchableOpacity style={styles.completeRatingTriggerBtn} onPress={() => setRatingModalVisible(true)}>
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].completeRateBtn}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
+            )}
 
-              {trackingRequest && (
-                <View style={styles.trackingDashboardContainer}>
-                  <View style={styles.trackingHeaderFlexRow}>
-                    <View>
-                      <Text style={styles.trackingPartnerNameMainTitle}>{trackingRequest.partnerName}</Text>
-                      <Text style={styles.trackingPartnerShopSubtitle}>{trackingRequest.shopName} • 4.8 ⭐</Text>
-                    </View>
-                    <View style={styles.etaDisplayBadgeFrame}>
-                      <Text style={{ color: '#2563EB', fontWeight: 'bold', fontSize: 12 }}>{dictionary[lang].etaText}</Text>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 6, marginTop: 6 }}>
-                    <Text style={{ fontSize: 13, fontWeight: 'bold' }}>{dictionary[lang].totalPayable}</Text>
-                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#DC2626' }}>₹{totalBillAmount}</Text>
-                  </View>
-
-                  <View style={styles.otpSecureClosureDisplayCard}>
-                    <Text style={{ fontWeight: 'bold', fontSize: 13, color: '#1E293B' }}>{dictionary[lang].closeCodeLabel}</Text>
-                    <Text style={styles.otpClosureCodeString}>{serviceClosureOTP}</Text>
-                    <Text style={styles.otpClosureNoticeSubtext}>{dictionary[lang].closeCodeNote}</Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                    <TouchableOpacity style={styles.chatRoomTriggerBtn} onPress={() => setChatModalVisible(true)}>
-                      <Text style={{ color: '#1E293B', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].chatBtnText}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.completeRatingTriggerBtn} onPress={() => setRatingModalVisible(true)}>
-                      <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>{dictionary[lang].completeRateBtn}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              <TouchableOpacity style={styles.accountLogoutActionBtn} onPress={handleSystemLogout}>
-                <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>{dictionary[lang].logoutText}</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
+            <TouchableOpacity style={styles.accountLogoutActionBtn} onPress={handleSystemLogout}>
+              <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>{dictionary[lang].logoutText}</Text>
+            </TouchableOpacity>
+          </ScrollView>
         )
       )}
 
@@ -844,7 +760,7 @@ export default function App() {
 
                       <Text style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 12 }}>{dictionary[lang].categoryTypeLabel}</Text>
                       <View style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
-                        <Picker selectedValue={serviceType} onValueChange={(itemValue) => setServiceType(itemValue)}>
+                        <Picker selectedValue={serviceType} onValueChange={(itemValue: string) => setServiceType(itemValue)}>
                           <Picker.Item label={dictionary[lang].generalMechanicLabel} value="Mechanic" />
                           <Picker.Item label={dictionary[lang].punctureFixingLabel} value="Puncture" />
                           <Picker.Item label={dictionary[lang].emergencyFuelLabel} value="Fuel" />
@@ -992,7 +908,7 @@ export default function App() {
 
             <Text style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>{dictionary[lang].problemType}</Text>
             <View style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
-              <Picker selectedValue={selectedProblem} onValueChange={(itemValue) => setSelectedProblem(itemValue)}>
+              <Picker selectedValue={selectedProblem} onValueChange={(itemValue: string) => setSelectedProblem(itemValue)}>
                 {getDynamicProblems().map((item) => (
                   <Picker.Item key={item.value} label={item.label} value={item.value} />
                 ))}
@@ -1059,10 +975,10 @@ export default function App() {
       {/* LIVE CHAT MODAL */}
       <Modal visible={chatModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlayCenter}>
-          <View style={[styles.modalCardContainer, { height: 400 }]}>
+          <View style={[styles.modalCardContainer, { maxHeight: '80%' }]}>
             <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>{dictionary[lang].liveChatTitle}</Text>
             
-            <ScrollView style={{ flex: 1, marginBottom: 8 }}>
+            <ScrollView style={{ flexGrow: 1, marginBottom: 8 }} contentContainerStyle={{ paddingBottom: 8 }}>
               {chatMessages.map((msg) => (
                 <View key={msg.id} style={{ alignSelf: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? 'flex-end' : 'flex-start', backgroundColor: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? '#2563EB' : '#E2E8F0', padding: 8, borderRadius: 8, marginBottom: 4, maxWidth: '80%' }}>
                   <Text style={{ color: msg.sender === (authSelection === 'USER' ? 'user' : 'partner') ? '#FFF' : '#1E293B', fontSize: 12 }}>{msg.text}</Text>
@@ -1113,7 +1029,7 @@ const styles = StyleSheet.create({
   avatarPlaceholderContainer: { alignItems: 'center' },
   cameraIconBadge: { position: 'absolute', bottom: 2, right: 2, backgroundColor: '#2563EB', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' },
 
-  mapCanvasContainerFrame: { width: '100%', height: 250, backgroundColor: '#E2E8F0' },
+  mapCanvasContainerFrame: { width: '100%', height: 220, backgroundColor: '#E2E8F0' },
   servicesGridTitle: { fontSize: 14, fontWeight: 'bold', color: '#0F172A', marginBottom: 10 },
   servicesGridFlexibleRow: { flexDirection: 'row', justifyContent: 'space-between' },
   serviceSquareUnitBtn: { flex: 1, backgroundColor: '#FFF', padding: 12, borderRadius: 10, alignItems: 'center', marginHorizontal: 4, elevation: 2 },
