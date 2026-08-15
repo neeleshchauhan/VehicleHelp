@@ -11,15 +11,15 @@ const MechanicSchema = new mongoose.Schema({
     enum: ['Mechanic', 'Puncture', 'Fuel'],
     default: 'Mechanic'
   },
+  socketId: { type: String, default: '' },
   location: {
-    type: { type: String, default: 'Point' },
+    type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude]
   },
-  // 👇 UPDATED: Isey 'isOnline' kar diya taaki hamare routes se match kare
   isOnline: { type: Boolean, default: true }
 }, { timestamps: true });
 
-// For GeoSpatial queries (Map par pass wale mechanic dundhne ke liye)
+// GeoSpatial queries ke liye index mandatory hai
 MechanicSchema.index({ location: '2dsphere' });
 
 module.exports = mongoose.model('Mechanic', MechanicSchema);

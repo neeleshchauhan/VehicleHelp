@@ -2,11 +2,10 @@ const express = require('express');
 const router = express.Router();
 const Mechanic = require('../models/Mechanic');
 
-// 1. Mechanic Register Route (UPDATED: Added serviceType)
+// 1. Register Partner
 router.post('/register', async (req, res) => {
   try {
-    // 👇 Body se serviceType ko bhi nikaal liya
-    const { shopName, ownerName, mobileNumber, address, coordinates, serviceType } = req.body;
+    const { shopName, ownerName, mobileNumber, address, coordinates, serviceType, socketId } = req.body;
 
     let mechanic = await Mechanic.findOne({ mobileNumber });
     if (mechanic) {
@@ -18,25 +17,34 @@ router.post('/register', async (req, res) => {
       ownerName,
       mobileNumber,
       address,
-      serviceType: serviceType || 'Mechanic', // 👇 Model me 'Mechanic', 'Puncture', ya 'Fuel' save hoga
+      serviceType: serviceType || 'Mechanic',
+      socketId: socketId || '',
       location: {
         type: 'Point',
-        coordinates: coordinates || [0, 0] // [longitude, latitude]
+        coordinates: coordinates || [0, 0]
       }
     });
 
     await mechanic.save();
     res.status(201).json({ success: true, message: 'Mechanic registered successfully!', mechanic });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 2. Mechanic Quick Login Route
+// 2. Partner Login & Socket Bind
 router.post('/login', async (req, res) => {
   try {
-    const { mobileNumber } = req.body;
-    const mechanic = await Mechanic.findOne({ mobileNumber });
+    const { mobileNumber, socketId } = req.body;
+
+    const updateFields = {};
+    if (socketId) updateFields.socketId = socketId;
+
+    const mechanic = await Mechanic.findOneAndUpdate(
+      { mobileNumber },
+      { $set: updateFields },
+      { new: true }
+    );
 
     if (!mechanic) {
       return res.status(404).json({ message: 'No registered partner found with this number.' });
@@ -44,18 +52,21 @@ router.post('/login', async (req, res) => {
 
     res.status(200).json({ success: true, message: 'Fast Login Successful!', mechanic });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 3. Go Online/Offline Status Route
+// 3. Online/Offline Status Toggle
 router.post('/toggle-status', async (req, res) => {
   try {
-    const { mobileNumber, isOnline } = req.body; 
+    const { mobileNumber, isOnline, socketId } = req.body; 
+
+    const updateFields = { isOnline };
+    if (socketId) updateFields.socketId = socketId;
 
     const mechanic = await Mechanic.findOneAndUpdate(
       { mobileNumber },
-      { isOnline },
+      updateFields,
       { new: true }
     );
 
@@ -69,20 +80,23 @@ router.post('/toggle-status', async (req, res) => {
       isOnline: mechanic.isOnline 
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 4. Live Location Update Route
+// 4. Live Location Update
 router.post('/update-location', async (req, res) => {
   try {
-    const { mobileNumber, coordinates } = req.body; 
+    const { mobileNumber, coordinates, socketId } = req.body; 
+
+    const updateFields = {
+      'location.coordinates': coordinates
+    };
+    if (socketId) updateFields.socketId = socketId;
 
     const mechanic = await Mechanic.findOneAndUpdate(
       { mobileNumber },
-      {
-        'location.coordinates': coordinates
-      },
+      updateFields,
       { new: true }
     );
 
@@ -96,7 +110,7 @@ router.post('/update-location', async (req, res) => {
       coordinates: mechanic.location.coordinates 
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

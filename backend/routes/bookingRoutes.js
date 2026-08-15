@@ -1,91 +1,141 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose'); 
-const { ObjectId } = require('mongodb');
+const Booking = require('../models/Booking');
+const Mechanic = require('../models/Mechanic');
 
-// 1. Create New Emergency Booking Request
+// 1. Dynamic Radius Emergency SOS Search (8 KM -> 15 KM -> 25 KM)
 router.post('/create', async (req, res) => {
   try {
-    const { userName, userMobile, serviceType, vehicleType, description, latitude, longitude } = req.body;
+    const { userName, userMobile, serviceType, vehicleType, description, latitude, longitude, driverSocketId } = req.body;
 
-    const bookingData = {
+    const latNum = Number(latitude) || 0;
+    const lngNum = Number(longitude) || 0;
+
+    const newBooking = await Booking.create({
       userName: userName || "Test User",
       userMobile: userMobile || "9999988888",
-      serviceType: serviceType || "mechanic",  
-      vehicleType: vehicleType || "car",       
+      serviceType: serviceType || "mechanic",
+      vehicleType: vehicleType || "car",
       description: description || "General Mechanical Issue",
-      pickupLocation: "Live GPS Coordinates",
-      latitude: Number(latitude),   
-      longitude: Number(longitude), 
-      status: "pending",
-      createdAt: new Date()
-    };
+      location: [lngNum, latNum],
+      driverSocketId: driverSocketId || '',
+      status: "pending"
+    });
 
-    console.log("💾 BACKEND RECEIVED LIVE DATA:", bookingData);
+    // Auto-expanding radius search
+    const radiusSteps = [8000, 15000, 25000];
+    let nearbyMechanics = [];
+    let matchedRadiusKm = 8;
 
-    const result = await mongoose.connection.collection('bookings').insertOne(bookingData);
-    const savedBookingId = result.insertedId;
-
-    // Socket instance integration for real-time alerts
-    const io = req.app.get('socketio');
-    if (io) {
-      io.emit('NEW_SOS_REQUEST', {
-        bookingId: savedBookingId,
-        ...bookingData
+    for (const radius of radiusSteps) {
+      nearbyMechanics = await Mechanic.find({
+        isOnline: true,
+        location: {
+          $near: {
+            $geometry: { type: 'Point', coordinates: [lngNum, latNum] },
+            $maxDistance: radius
+          }
+        }
       });
-      console.log(`📡 Live Socket Broadcast Sent to Partners for Phone: ${bookingData.userMobile}`);
-    } else {
-      console.log("⚠️ Socket.io instance reference missing!");
+
+      if (nearbyMechanics.length > 0) {
+        matchedRadiusKm = radius / 1000;
+        break;
+      }
     }
 
-    res.status(201).json({ success: true, message: 'SOS Request Broadcasted!', bookingId: savedBookingId });
+    const io = req.app.get('socketio');
+    if (io && nearbyMechanics.length > 0) {
+      nearbyMechanics.forEach((mech) => {
+        if (mech.socketId) {
+          io.to(mech.socketId).emit('NEW_SOS_REQUEST', {
+            bookingId: newBooking._id,
+            userName: newBooking.userName,
+            userMobile: newBooking.userMobile,
+            serviceType: newBooking.serviceType,
+            vehicleType: newBooking.vehicleType,
+            description: newBooking.description,
+            latitude: latNum,
+            longitude: lngNum,
+            searchRadiusKm: matchedRadiusKm
+          });
+        }
+      });
+    }
+
+    res.status(201).json({ 
+      success: true, 
+      message: `SOS Request Sent to nearby ${matchedRadiusKm} KM partners!`, 
+      bookingId: newBooking._id,
+      radiusKm: matchedRadiusKm,
+      notifiedPartnersCount: nearbyMechanics.length
+    });
   } catch (error) {
-    console.error("❌ Booking Database Ingestion Error:", error.message); 
-    res.status(500).json({ error: error.message });
+    console.error("❌ Booking Error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 2. Get All Bookings List
+// 2. Booking List
 router.get('/list', async (req, res) => {
   try {
-    const data = await mongoose.connection.collection('bookings').find({}).sort({ createdAt: -1 }).toArray();
+    const data = await Booking.find({}).sort({ createdAt: -1 });
     res.status(200).json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 3. Update Booking Status (Accept / Reject) by Partner Garage
+// 3. Status Update & Atomic Single Accept Lock
 router.put('/update-status/:id', async (req, res) => {
   try {
     const bookingId = req.params.id;
-    const { status, partnerName, shopName } = req.body; 
+    const { status, mechanicId, partnerName, shopName } = req.body;
 
-    const result = await mongoose.connection.collection('bookings').updateOne(
-      { _id: new ObjectId(bookingId) },
-      { $set: { status: status, partnerName: partnerName, shopName: shopName, updatedAt: new Date() } }
-    );
+    if (status === "accepted" || status === "Accepted") {
+      const updatedBooking = await Booking.findOneAndUpdate(
+        { _id: bookingId, status: "pending" }, 
+        { 
+          $set: { 
+            status: "accepted", 
+            mechanicAssigned: mechanicId || null 
+          } 
+        },
+        { new: true }
+      );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: "Booking record not found!" });
-    }
+      if (!updatedBooking) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Ye request pehle hi kisi aur partner ne accept kar li hai!" 
+        });
+      }
 
-    // Notify Driver app about the status change
-    const io = req.app.get('socketio');
-    if (io) {
-      io.emit('BOOKING_STATUS_CHANGED', {
-        bookingId: bookingId,
-        status: status,
-        partnerName: partnerName,
-        shopName: shopName
+      const io = req.app.get('socketio');
+      if (io) {
+        io.emit('BOOKING_STATUS_CHANGED', {
+          bookingId: bookingId,
+          status: "accepted",
+          partnerName: partnerName,
+          shopName: shopName
+        });
+
+        io.emit('CLOSE_SOS_POPUP', { bookingId: bookingId });
+      }
+
+      return res.status(200).json({ 
+        success: true, 
+        message: "Request successfully accepted!", 
+        booking: updatedBooking 
       });
-      console.log(`📡 Socket Update Sent: Booking ${bookingId} is now ${status}`);
     }
 
-    res.status(200).json({ success: true, message: `Status successfully updated to ${status}` });
+    const result = await Booking.findByIdAndUpdate(bookingId, { status: status }, { new: true });
+    res.status(200).json({ success: true, booking: result });
+
   } catch (error) {
-    console.error("❌ Status Update Router Error:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Status Update Error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
